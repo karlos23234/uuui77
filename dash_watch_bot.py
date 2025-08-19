@@ -1,26 +1,36 @@
+import os
+import json
+import time
+import requests
 from flask import Flask, request
 import telebot
-import requests
-import json
-import os
 from datetime import datetime, timezone
 import threading
 
-# ===== Telegram bot token =====
-BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
-bot = telebot.TeleBot(BOT_TOKEN)
+# ====== Bot Config ======
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+WEBHOOK_URL = f"https://YOUR_RENDER_DOMAIN.onrender.com/{BOT_TOKEN}"
 
-# ===== Webhook URL =====
-WEBHOOK_URL = f"https://uuui77-1.onrender.com/<8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ>"
-
-# ===== JSON files =====
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
-# ===== Flask app =====
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
+
+# ====== Flask App ======
 app = Flask(__name__)
 
-# ===== Helpers =====
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot is running", 200
+
+# ====== Helpers ======
 def load_users():
     if os.path.exists(USERS_FILE):
         return json.load(open(USERS_FILE, "r", encoding="utf-8"))
@@ -45,8 +55,9 @@ def get_dash_price_usd():
         return None
 
 def get_latest_txs(address):
+    url = f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10"
     try:
-        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10", timeout=20)
+        r = requests.get(url, timeout=20)
         return r.json().get("txs", [])
     except:
         return []
@@ -62,11 +73,10 @@ def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
         f"🔗 {link}"
     )
 
-# ===== Load state =====
+# ====== Telegram Handlers ======
 users = load_users()
 sent_txs = load_sent_txs()
 
-# ===== Telegram handlers =====
 @bot.message_handler(commands=["start"])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
@@ -75,6 +85,7 @@ def start(msg):
 def save_address(msg):
     user_id = str(msg.chat.id)
     address = msg.text.strip()
+
     users.setdefault(user_id, [])
     if address not in users[user_id]:
         users[user_id].append(address)
@@ -84,60 +95,60 @@ def save_address(msg):
     sent_txs[user_id].setdefault(address, [])
     save_sent_txs(sent_txs)
 
-    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։")
+    bot.reply_to(
+        msg,
+        f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։"
+    )
 
-# ===== Webhook route =====
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    json_str = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return "OK", 200
-
-@app.route("/")
-def index():
-    return "Bot is running!", 200
-
-# ===== Monitor loop for transactions =====
+# ====== Monitor Loop ======
 def monitor():
     while True:
         price = get_dash_price_usd()
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
         for user_id, addresses in users.items():
             for address in addresses:
                 txs = get_latest_txs(address)
                 known = sent_txs.get(user_id, {}).get(address, [])
                 last_number = max([t["num"] for t in known], default=0)
+
                 for tx in reversed(txs):
                     txid = tx.get("hash")
                     if txid in [t["txid"] for t in known]:
                         continue
-                    amount_dash = sum(out.get("value",0)/1e8 for out in tx.get("outputs",[]) if address in (out.get("addresses") or []))
+
+                    amount_dash = sum(
+                        out.get("value", 0) / 1e8
+                        for out in tx.get("outputs", [])
+                        if address in (out.get("addresses") or [])
+                    )
                     if amount_dash <= 0:
                         continue
+
                     amount_usd = (amount_dash * price) if price else None
                     last_number += 1
                     text = format_alert(address, amount_dash, amount_usd, txid, timestamp, last_number)
+
                     try:
                         bot.send_message(user_id, text)
                     except Exception as e:
                         print("Send error:", e)
+
                     known.append({"txid": txid, "num": last_number})
+
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_sent_txs(sent_txs)
-        import time
+
         time.sleep(30)
 
-# ===== Start monitor thread =====
-threading.Thread(target=monitor, daemon=True).start()
-
-# ===== Run Flask server =====
+# ====== Start Bot ======
 if __name__ == "__main__":
-    # Delete old webhook & set new
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
 
-  port = int(os.environ.get("PORT", 5000))
-app.run(host="0.0.0.0", port=port)
+    # Start monitoring thread
+    threading.Thread(target=monitor, daemon=True).start()
 
-
+    # Run Flask app
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
