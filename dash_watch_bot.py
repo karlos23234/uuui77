@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 import threading
 
 # ====== Bot Config ======
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-WEBHOOK_URL = f"https://YOUR_RENDER_DOMAIN.onrender.com/{BOT_TOKEN}"
+BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
+WEBHOOK_URL = f"https://uuui77-1.onrender.com/<8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ>"
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
