@@ -5,18 +5,16 @@ import os
 import time
 from datetime import datetime, timezone
 import threading
-import telebot
 
+# ===== Telegram Bot =====
 BOT_TOKEN = "8421773324:AAGNL4T2Y3nv7NiqdRog5JfHk82JLo_tMMk"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Ջնջել webhook-ը
-bot.remove_webhook()
+# ===== File paths =====
+USERS_FILE = "users.json"
+SENT_TX_FILE = "sent_txs.json"
 
-# Ապա սկսել polling
-bot.polling(none_stop=True)
-
-# === helpers ===
+# ===== Helpers =====
 def load_users():
     if os.path.exists(USERS_FILE):
         return json.load(open(USERS_FILE, "r", encoding="utf-8"))
@@ -59,9 +57,9 @@ def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
         f"🔗 {link}"
     )
 
-# === Telegram handlers ===
-users = load_users()  # {user_id: [addr1, addr2]}
-sent_txs = load_sent_txs()  # {user_id: {address: [{"txid":..., "num":...}]}}
+# ===== Telegram Handlers =====
+users = load_users()
+sent_txs = load_sent_txs()
 
 @bot.message_handler(commands=["start"])
 def start(msg):
@@ -81,9 +79,9 @@ def save_address(msg):
     sent_txs[user_id].setdefault(address, [])
     save_sent_txs(sent_txs)
 
-    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։", parse_mode="Markdown")
+    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։")
 
-# === Main loop ===
+# ===== Main monitoring loop =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -113,7 +111,7 @@ def monitor():
                     text = format_alert(address, amount_dash, amount_usd, txid, timestamp, last_number)
 
                     try:
-                        bot.send_message(user_id, text, parse_mode="Markdown")
+                        bot.send_message(user_id, text)
                     except Exception as e:
                         print("Send error:", e)
 
@@ -122,8 +120,10 @@ def monitor():
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_sent_txs(sent_txs)
 
-        time.sleep(30)
+        time.sleep(30)  # ստուգում 30 վայրկյանում մեկ անգամ
 
-# === Run ===
+# ===== Start monitoring thread =====
 threading.Thread(target=monitor, daemon=True).start()
+
+# ===== Start polling =====
 bot.polling(none_stop=True)
