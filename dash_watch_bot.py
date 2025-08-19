@@ -11,6 +11,9 @@ import threading
 BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 WEBHOOK_URL = f"https://uuui77-1.onrender.com/<8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ>"
 
+bot.remove_webhook()
+bot.set_webhook(url=WEBHOOK_URL)
+
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
