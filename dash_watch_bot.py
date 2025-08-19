@@ -11,7 +11,7 @@ BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ===== Webhook URL =====
-WEBHOOK_URL = f"https://<ՁԵՐ_RENDER_DOMAIN>.onrender.com/{BOT_TOKEN}"
+WEBHOOK_URL = f"https://uuui77-1.onrender.com/<8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ>"
 
 # ===== JSON files =====
 USERS_FILE = "users.json"
