@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import threading
 
 BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
-WEBHOOK_URL = f"https://uuui77-1.onrender.com/<8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ>"
+WEBHOOK_URL = f"https://uuui77-1.onrender.com/8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
