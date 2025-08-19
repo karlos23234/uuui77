@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 import threading
 
-BOT_TOKEN = "ԲԱՐԵՎ_ՔՈ_ԲՈՏ_ՏՈՔԵՆ"
+BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 USERS_FILE = "users.json"
