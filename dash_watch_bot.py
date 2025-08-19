@@ -6,15 +6,12 @@ import time
 from datetime import datetime, timezone
 import threading
 
-# ===== Telegram Bot =====
-BOT_TOKEN = "8421773324:AAGNL4T2Y3nv7NiqdRog5JfHk82JLo_tMMk"
+BOT_TOKEN = "ԲԱՐԵՎ_ՔՈ_ԲՈՏ_ՏՈՔԵՆ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ===== File paths =====
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
-# ===== Helpers =====
 def load_users():
     if os.path.exists(USERS_FILE):
         return json.load(open(USERS_FILE, "r", encoding="utf-8"))
@@ -57,7 +54,6 @@ def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
         f"🔗 {link}"
     )
 
-# ===== Telegram Handlers =====
 users = load_users()
 sent_txs = load_sent_txs()
 
@@ -81,7 +77,6 @@ def save_address(msg):
 
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։")
 
-# ===== Main monitoring loop =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -120,10 +115,7 @@ def monitor():
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_sent_txs(sent_txs)
 
-        time.sleep(30)  # ստուգում 30 վայրկյանում մեկ անգամ
+        time.sleep(30)
 
-# ===== Start monitoring thread =====
 threading.Thread(target=monitor, daemon=True).start()
-
-# ===== Start polling =====
 bot.polling(none_stop=True)
