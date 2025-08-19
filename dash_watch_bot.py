@@ -1,8 +1,8 @@
+from flask import Flask, request
 import telebot
 import requests
 import json
 import os
-import time
 from datetime import datetime, timezone
 import threading
 
@@ -10,13 +10,17 @@ import threading
 BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# ===== Webhook URL =====
+WEBHOOK_URL = f"https://<ՁԵՐ_RENDER_DOMAIN>.onrender.com/{BOT_TOKEN}"
+
+# ===== JSON files =====
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
-# Ջնջել webhook-ը նախքան polling
-bot.remove_webhook()
+# ===== Flask app =====
+app = Flask(__name__)
 
-# === helpers ===
+# ===== Helpers =====
 def load_users():
     if os.path.exists(USERS_FILE):
         return json.load(open(USERS_FILE, "r", encoding="utf-8"))
@@ -58,11 +62,11 @@ def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
         f"🔗 {link}"
     )
 
-# === Load state ===
+# ===== Load state =====
 users = load_users()
 sent_txs = load_sent_txs()
 
-# === Telegram handlers ===
+# ===== Telegram handlers =====
 @bot.message_handler(commands=["start"])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
@@ -82,7 +86,19 @@ def save_address(msg):
 
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։")
 
-# === Monitor loop ===
+# ===== Webhook route =====
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@app.route("/")
+def index():
+    return "Bot is running!", 200
+
+# ===== Monitor loop for transactions =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -109,9 +125,19 @@ def monitor():
                     known.append({"txid": txid, "num": last_number})
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_sent_txs(sent_txs)
+        import time
         time.sleep(30)
 
-# === Run ===
+# ===== Start monitor thread =====
 threading.Thread(target=monitor, daemon=True).start()
-bot.polling(none_stop=True)
+
+# ===== Run Flask server =====
+if __name__ == "__main__":
+    # Delete old webhook & set new
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
 
