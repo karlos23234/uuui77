@@ -6,12 +6,17 @@ import time
 from datetime import datetime, timezone
 import threading
 
+# ===== Telegram bot token =====
 BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
+# Ջնջել webhook-ը նախքան polling
+bot.remove_webhook()
+
+# === helpers ===
 def load_users():
     if os.path.exists(USERS_FILE):
         return json.load(open(USERS_FILE, "r", encoding="utf-8"))
@@ -36,9 +41,8 @@ def get_dash_price_usd():
         return None
 
 def get_latest_txs(address):
-    url = f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10"
     try:
-        r = requests.get(url, timeout=20)
+        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10", timeout=20)
         return r.json().get("txs", [])
     except:
         return []
@@ -54,9 +58,11 @@ def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
         f"🔗 {link}"
     )
 
+# === Load state ===
 users = load_users()
 sent_txs = load_sent_txs()
 
+# === Telegram handlers ===
 @bot.message_handler(commands=["start"])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
@@ -65,7 +71,6 @@ def start(msg):
 def save_address(msg):
     user_id = str(msg.chat.id)
     address = msg.text.strip()
-
     users.setdefault(user_id, [])
     if address not in users[user_id]:
         users[user_id].append(address)
@@ -77,45 +82,36 @@ def save_address(msg):
 
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։")
 
+# === Monitor loop ===
 def monitor():
     while True:
         price = get_dash_price_usd()
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
         for user_id, addresses in users.items():
             for address in addresses:
                 txs = get_latest_txs(address)
                 known = sent_txs.get(user_id, {}).get(address, [])
                 last_number = max([t["num"] for t in known], default=0)
-
                 for tx in reversed(txs):
                     txid = tx.get("hash")
                     if txid in [t["txid"] for t in known]:
                         continue
-
-                    amount_dash = sum(
-                        out.get("value", 0) / 1e8
-                        for out in tx.get("outputs", [])
-                        if address in (out.get("addresses") or [])
-                    )
+                    amount_dash = sum(out.get("value",0)/1e8 for out in tx.get("outputs",[]) if address in (out.get("addresses") or []))
                     if amount_dash <= 0:
                         continue
-
                     amount_usd = (amount_dash * price) if price else None
                     last_number += 1
                     text = format_alert(address, amount_dash, amount_usd, txid, timestamp, last_number)
-
                     try:
                         bot.send_message(user_id, text)
                     except Exception as e:
                         print("Send error:", e)
-
                     known.append({"txid": txid, "num": last_number})
-
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_sent_txs(sent_txs)
-
         time.sleep(30)
 
+# === Run ===
 threading.Thread(target=monitor, daemon=True).start()
 bot.polling(none_stop=True)
+
