@@ -1,39 +1,21 @@
 import os
 import json
-import time
 import requests
 from flask import Flask, request
 import telebot
 from datetime import datetime, timezone
 import threading
 
-# ====== Bot Config ======
 BOT_TOKEN = "8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 WEBHOOK_URL = f"https://uuui77-1.onrender.com/<8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ>"
 
-bot.remove_webhook()
-bot.set_webhook(url=WEBHOOK_URL)
+bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
-
-# ====== Flask App ======
-app = Flask(__name__)
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    json_str = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return "OK", 200
-
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot is running", 200
-
-# ====== Helpers ======
+# ===== helpers =====
 def load_users():
     if os.path.exists(USERS_FILE):
         return json.load(open(USERS_FILE, "r", encoding="utf-8"))
@@ -76,7 +58,15 @@ def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
         f"🔗 {link}"
     )
 
-# ====== Telegram Handlers ======
+# ===== Telegram webhook =====
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "", 200
+
+# ===== Telegram handlers =====
 users = load_users()
 sent_txs = load_sent_txs()
 
@@ -98,12 +88,9 @@ def save_address(msg):
     sent_txs[user_id].setdefault(address, [])
     save_sent_txs(sent_txs)
 
-    bot.reply_to(
-        msg,
-        f"✅ Հասցեն {address} պահպանվեց!\nԱյժմ ես կուղարկեմ միայն նոր տրանզակցիաների ծանուցումներ։"
-    )
+    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ====== Monitor Loop ======
+# ===== Dash TX monitoring thread =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -142,16 +129,10 @@ def monitor():
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_sent_txs(sent_txs)
 
-        time.sleep(30)
+import threading
+threading.Thread(target=monitor, daemon=True).start()
 
-# ====== Start Bot ======
-if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
+# ===== Set webhook =====
+bot.remove_webhook()
+bot.set_webhook(url=WEBHOOK_URL)
 
-    # Start monitoring thread
-    threading.Thread(target=monitor, daemon=True).start()
-
-    # Run Flask app
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
