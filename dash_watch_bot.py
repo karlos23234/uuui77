@@ -5,12 +5,16 @@ import os
 import time
 from datetime import datetime, timezone
 import threading
+import telebot
 
 BOT_TOKEN = "8421773324:AAGNL4T2Y3nv7NiqdRog5JfHk82JLo_tMMk"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-USERS_FILE = "users.json"
-SENT_TX_FILE = "sent_txs.json"
+# Ջնջել webhook-ը
+bot.remove_webhook()
+
+# Ապա սկսել polling
+bot.polling(none_stop=True)
 
 # === helpers ===
 def load_users():
