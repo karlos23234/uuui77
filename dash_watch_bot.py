@@ -1,4 +1,3 @@
-# dash_watch_bot_render.py
 import telebot
 import requests
 import json
@@ -7,14 +6,13 @@ import time
 from datetime import datetime, timezone
 import threading
 
-# BOT_TOKEN- ը պետք է ավելացնես Render Environment Variables
+# Telegram Bot Token (Render-ում պետք է ավելացնես Environment Variable BOT_TOKEN)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ Please set BOT_TOKEN as environment variable in Render.")
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
-# Ֆայլերի անուններ
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
@@ -53,8 +51,11 @@ sent_txs = load_sent_txs()
 # === DASH price & transactions ===
 def get_dash_price_usd():
     try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price",
-                         params={"ids":"dash","vs_currencies":"usd"}, timeout=10)
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids":"dash","vs_currencies":"usd"},
+            timeout=10
+        )
         return float(r.json().get("dash", {}).get("usd", 0))
     except:
         return None
@@ -150,4 +151,5 @@ if __name__ == "__main__":
     bot.remove_webhook()  # Important for polling
     threading.Thread(target=monitor, daemon=True).start()
     bot.polling(none_stop=True)
+
 
