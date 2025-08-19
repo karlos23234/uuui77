@@ -9,8 +9,8 @@ import telebot
 import re
 
 # ===== Environment variables =====
-BOT_TOKEN = os.getenv("8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ")
-WEBHOOK_URL_BASE = os.getenv("https://uuui77-1.onrender.com/8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ")  # https://your-app.onrender.com
+BOT_TOKEN = os.getenv("8294188586:AAEOQdJZySFXMeWSiFMi6zhpgzezCq1YL14")
+WEBHOOK_URL_BASE = os.getenv("https://uuui77-1.onrender.com/8294188586:AAEOQdJZySFXMeWSiFMi6zhpgzezCq1YL14")  # https://your-app.onrender.com
 
 if not BOT_TOKEN or not WEBHOOK_URL_BASE:
     raise ValueError("Պետք է ավելացնել BOT_TOKEN և WEBHOOK_URL environment փոփոխականները")
