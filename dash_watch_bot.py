@@ -13,7 +13,7 @@ bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
-WEBHOOK_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+WEBHOOK_URL = f"https://uuui77-1.onrender.com/8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ"
 
 # ====== Flask App ======
 app = Flask(__name__)
