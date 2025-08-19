@@ -99,15 +99,22 @@ def format_alert(tx, address, tx_count, price=None):
     # USD արժեք (եթե գինը հասանելի է)
     usd_value = f" (${amount * price:.2f})" if price else ""
     
-    # Ժամանակի ձևաչափավորում
-    tx_time = tx.get("time", "Սպասվում է հաստատում")
-    
+  
+# 💡 Նոր notification ֆունկցիա
+def format_alert(address, amount_dash, amount_usd, txid, timestamp, tx_number):
+    link = f"https://blockchair.com/dash/transaction/{txid}"
+    usd_text = f" (~${amount_usd:,.2f})" if amount_usd else ""
+    short_txid = txid[:6] + "..." + txid[-6:]  # կարճացված hash
+
     return (
-        f"🔔 <b>Նոր գործարք #{tx_count}!</b>\n\n"
-        f"📌 Հասցե: <code>{address}</code>\n"
-        f"💰 Գումար: <b>{amount:.8f} DASH</b>{usd_value}\n"
-        f"🕒 Ժամանակ: {tx_time}\n"
-        f"🔗 <a href='https://blockchair.com/dash/transaction/{txid}'>Դիտել Blockchair-ում</a>"
+        f"🔔 **Նոր փոխանցում #{tx_number}!**\n\n"
+        f"📌 Հասցե: `{address}`\n"
+        f"💰 Գումար: *{amount_dash:.8f}* DASH{usd_text}\n"
+        f"🕒 Ժամանակ: {timestamp}\n"
+        f"🆔 TxID: `{short_txid}`\n"
+        f"🔗 [Տեսնել Blockchair-ում]({link})"
+    )
+
     )
 
 # ===== Telegram Commands =====
