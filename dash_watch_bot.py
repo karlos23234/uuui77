@@ -4,7 +4,7 @@ from helpers import bot, users, sent_txs, save_json
 
 app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # https://uuui77-5zd8.onrender.com
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
@@ -38,7 +38,3 @@ if __name__ == "__main__":
     print("Webhook set:", f"{WEBHOOK_URL}/{BOT_TOKEN}")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
-
-
