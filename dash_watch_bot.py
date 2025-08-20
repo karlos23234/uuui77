@@ -1,33 +1,33 @@
 import os
-from flask import Flask, request
-import telebot
-import requests
 import json
-import threading
+import requests
 import time
 from datetime import datetime, timezone
+import threading
+from flask import Flask, request
+import telebot
 
-# ===== Telegram Bot =====
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
+# ===== Environment variables =====
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+if not BOT_TOKEN or not WEBHOOK_URL:
+    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Environment Variable")
 
-# ===== File paths =====
+bot = telebot.TeleBot(BOT_TOKEN)
+
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
-TX_LOG_FILE = "tx_log.json"
 
 # ===== Helpers =====
 def load_json(file):
-    if os.path.exists(file):
-        try:
-            return json.load(open(file,"r",encoding="utf-8"))
-        except:
-            return {}
-    return {}
+    return json.load(open(file, "r", encoding="utf-8")) if os.path.exists(file) else {}
 
 def save_json(file, data):
-    json.dump(data, open(file,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+users = load_json(USERS_FILE)
+sent_txs = load_json(SENT_TX_FILE)
 
 def get_dash_price_usd():
     try:
@@ -37,55 +37,30 @@ def get_dash_price_usd():
         return None
 
 def get_latest_txs(address):
-    url = f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10"
     try:
-        r = requests.get(url, timeout=20)
+        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10", timeout=20)
         return r.json().get("txs", [])
     except:
         return []
 
-def format_alert(address, total_amount_dash, total_amount_usd, last_txid, timestamp):
-    link = f"https://blockchair.com/dash/transaction/{last_txid}"
-    usd_text = f" (~${total_amount_usd:,.2f})" if total_amount_usd else ""
-    short_txid = last_txid[:6] + "..." + last_txid[-6:]
+def format_alert(tx, address, tx_number, price):
+    txid = tx["hash"]
+    total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
+    usd_text = f" (${total_received*price:.2f})" if price else ""
+    timestamp = tx.get("confirmed")
+    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
-        f"🔔 Նոր փոխանցումներ!\n\n"
-        f"📌 Հասցե: `{address}`\n"
-        f"💰 Գումար: *{total_amount_dash:.8f}* DASH{usd_text}\n"
-        f"🕒 Ժամանակ: {timestamp}\n"
-        f"🆔 Վերջին TxID: `{short_txid}`\n"
-        f"🔗 [Տեսնել Blockchair-ում]({link})"
+        f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
+        f"📌 Address: {address}\n"
+        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
+        f"🕒 Time: {timestamp}\n"
+        f"🔗 https://blockchair.com/dash/transaction/{txid}"
     )
 
-def save_tx_log(log_data):
-    if os.path.exists(TX_LOG_FILE):
-        try:
-            existing = json.load(open(TX_LOG_FILE,"r",encoding="utf-8"))
-        except:
-            existing = []
-    else:
-        existing = []
-    existing.extend(log_data)
-    json.dump(existing, open(TX_LOG_FILE,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
-
-# ===== Load data =====
-users = load_json(USERS_FILE)
-sent_txs = load_json(SENT_TX_FILE)
-
-# ===== Flask App =====
-app = Flask(__name__)
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    json_data = request.get_json()
-    update = telebot.types.Update.de_json(json_data)
-    bot.process_new_updates([update])
-    return "OK", 200
-
-# ===== Telegram handlers =====
-@bot.message_handler(commands=["start"])
+# ===== Telegram Handlers =====
+@bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
+    bot.reply_to(msg, "Բարև 👋 Գրի՛ր քո Dash հասցեն (սկսվում է X-ով)")
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
@@ -95,64 +70,52 @@ def save_address(msg):
     if address not in users[user_id]:
         users[user_id].append(address)
     save_json(USERS_FILE, users)
-
     sent_txs.setdefault(user_id, {})
     sent_txs[user_id].setdefault(address, [])
     save_json(SENT_TX_FILE, sent_txs)
+    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-    bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց։ Այժմ ես կուղարկեմ նոր տրանզակցիաների ծանուցումներ։")
-
-# ===== Monitor thread =====
+# ===== Background loop =====
 def monitor():
     while True:
         price = get_dash_price_usd()
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         for user_id, addresses in users.items():
             for address in addresses:
                 txs = get_latest_txs(address)
-                known = sent_txs.get(user_id, {}).get(address, [])
-                last_number = max([t["num"] for t in known], default=0)
-
-                total_amount = 0
-                last_txid = None
-                txs_to_log = []
-
+                known = [t["txid"] for t in sent_txs.get(user_id, {}).get(address, [])]
+                last_number = max([t.get("num",0) for t in sent_txs.get(user_id, {}).get(address, [])], default=0)
                 for tx in reversed(txs):
-                    txid = tx.get("hash")
-                    if txid in [t["txid"] for t in known]:
+                    txid = tx["hash"]
+                    if txid in known:
                         continue
-                    amount_dash = sum(out.get("value",0)/1e8 for out in tx.get("outputs",[]) if address in (out.get("addresses") or []))
-                    if amount_dash <= 0:
-                        continue
-                    total_amount += amount_dash
-                    last_txid = txid
                     last_number += 1
-                    known.append({"txid": txid, "num": last_number})
-                    if len(known) > 30:
-                        known = known[-30:]
-                    txs_to_log.append({"txid": txid, "address": address, "amount": amount_dash, "timestamp": timestamp})
-
-                if txs_to_log:
-                    save_tx_log(txs_to_log)
-
-                if total_amount > 0 and last_txid:
-                    amount_usd = total_amount * price if price else None
-                    text = format_alert(address, total_amount, amount_usd, last_txid, timestamp)
+                    alert = format_alert(tx, address, last_number, price)
                     try:
-                        bot.send_message(user_id, text)
+                        bot.send_message(user_id, alert)
                     except Exception as e:
-                        print("Send error:", e)
+                        print("Telegram send error:", e)
+                    sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
+        save_json(SENT_TX_FILE, sent_txs)
+        time.sleep(5)  # 5 վայրկյանից ստուգում նոր TX-ների համար
 
-                sent_txs.setdefault(user_id, {})[address] = known
-                save_json(SENT_TX_FILE, sent_txs)
+threading.Thread(target=monitor, daemon=True).start()
 
-        time.sleep(8)
+# ===== Flask server for Render =====
+app = Flask(__name__)
 
-# ===== Run Web Service =====
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+bot.remove_webhook()
+bot.set_webhook(url=WEBHOOK_URL)
+
 if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
-    print("Webhook set:", f"{WEBHOOK_URL}/{BOT_TOKEN}")
-    threading.Thread(target=monitor, daemon=True).start()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
