@@ -1,20 +1,22 @@
+import os
 import telebot
 import requests
 import json
-import os
-import time
-from datetime import datetime, timezone
 import threading
-from flask import Flask
+import time
+from flask import Flask, request
+from datetime import datetime, timezone
 
-# === Telegram Bot Setup ===
-BOT_TOKEN = "8421773324:AAGNL4T2Y3nv7NiqdRog5JfHk82JLo_tMMk"
+# ====== Settings ======
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
+app = Flask(__name__)
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
-# === Helpers ===
+# ====== Helpers ======
 def load_json(file):
     if os.path.exists(file):
         try:
@@ -46,19 +48,26 @@ def format_alert(address, total_amount_dash, total_amount_usd, last_txid, timest
     usd_text = f" (~${total_amount_usd:,.2f})" if total_amount_usd else ""
     short_txid = last_txid[:6] + "..." + last_txid[-6:]
     return (
-        f"🔔 Նոր փոխանցում!\n\n"
+        f"🔔 Նոր փոխանցումներ!\n\n"
         f"📌 Հասցե: `{address}`\n"
         f"💰 Գումար: *{total_amount_dash:.8f}* DASH{usd_text}\n"
         f"🕒 Ժամանակ: {timestamp}\n"
-        f"🆔 TxID: `{short_txid}`\n"
+        f"🆔 Վերջին TxID: `{short_txid}`\n"
         f"🔗 [Տեսնել Blockchair-ում]({link})"
     )
 
-# === Load Users and Sent TXs ===
+# ====== Load data ======
 users = load_json(USERS_FILE)
 sent_txs = load_json(SENT_TX_FILE)
 
-# === Telegram Handlers ===
+# ====== Telegram handlers ======
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    json_data = request.get_json()
+    update = telebot.types.Update.de_json(json_data)
+    bot.process_new_updates([update])
+    return "OK", 200
+
 @bot.message_handler(commands=["start"])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
@@ -76,19 +85,17 @@ def save_address(msg):
     sent_txs[user_id].setdefault(address, [])
     save_json(SENT_TX_FILE, sent_txs)
 
-    bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց:\nԱյժմ կստանաս նոր տրանզակցիաների ծանուցումներ։")
+    bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց։ Այժմ ես կուղարկեմ նոր տրանզակցիաների ծանուցումներ։")
 
-# === Monitor Thread ===
+# ====== Background monitor ======
 def monitor():
     while True:
         price = get_dash_price_usd()
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
         for user_id, addresses in users.items():
             for address in addresses:
                 txs = get_latest_txs(address)
                 known = sent_txs.get(user_id, {}).get(address, [])
-                last_number = max([t["num"] for t in known], default=0)
 
                 total_amount = 0
                 last_txid = None
@@ -98,19 +105,25 @@ def monitor():
                     if txid in [t["txid"] for t in known]:
                         continue
 
-                    amount_dash = sum(out.get("value",0)/1e8 for out in tx.get("outputs",[]) if address in (out.get("addresses") or []))
+                    amount_dash = 0
+                    for out in tx.get("outputs", []):
+                        addrs = out.get("addresses")
+                        if addrs and address in addrs:
+                            amount_dash += out.get("value",0)/1e8
+
                     if amount_dash <= 0:
                         continue
 
                     total_amount += amount_dash
                     last_txid = txid
-                    last_number += 1
-                    known.append({"txid": txid, "num": last_number})
-                    if len(known) > 100:
-                        known = known[-100:]
+                    known.append({"txid": txid})
+
+                    # Keep last 30 txs only
+                    if len(known) > 30:
+                        known = known[-30:]
 
                 if total_amount > 0 and last_txid:
-                    amount_usd = total_amount * price if price else None
+                    amount_usd = (total_amount * price) if price else None
                     text = format_alert(address, total_amount, amount_usd, last_txid, timestamp)
                     try:
                         bot.send_message(user_id, text)
@@ -120,21 +133,16 @@ def monitor():
                 sent_txs.setdefault(user_id, {})[address] = known
                 save_json(SENT_TX_FILE, sent_txs)
 
-        time.sleep(8)  # նոր TX ստուգել յուրաքանչյուր 8 վայրկյանում
+        time.sleep(10)  # ստուգում ամեն 10 վայրկյան
 
-# === Flask Web Server ===
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Dash TX Bot is running ✅"
-
-# === Main ===
+# ====== Run ======
 if __name__ == "__main__":
     bot.remove_webhook()
+    bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
     threading.Thread(target=monitor, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
