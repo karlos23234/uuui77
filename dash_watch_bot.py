@@ -1,44 +1,80 @@
 import os
-import re
-import json
-from flask import Flask, request, render_template
+from flask import Flask, request
 import telebot
-from datetime import datetime
+import requests
+import json
+import threading
+import time
+from datetime import datetime, timezone
 
+# ===== Telegram Bot =====
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
+
+# ===== File paths =====
+USERS_FILE = "users.json"
+SENT_TX_FILE = "sent_txs.json"
+TX_LOG_FILE = "tx_log.json"
+
+# ===== Helpers =====
+def load_json(file):
+    if os.path.exists(file):
+        try:
+            return json.load(open(file,"r",encoding="utf-8"))
+        except:
+            return {}
+    return {}
+
+def save_json(file, data):
+    json.dump(data, open(file,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+
+def get_dash_price_usd():
+    try:
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=10)
+        return float(r.json().get("dash", {}).get("usd", 0))
+    except:
+        return None
+
+def get_latest_txs(address):
+    url = f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10"
+    try:
+        r = requests.get(url, timeout=20)
+        return r.json().get("txs", [])
+    except:
+        return []
+
+def format_alert(address, total_amount_dash, total_amount_usd, last_txid, timestamp):
+    link = f"https://blockchair.com/dash/transaction/{last_txid}"
+    usd_text = f" (~${total_amount_usd:,.2f})" if total_amount_usd else ""
+    short_txid = last_txid[:6] + "..." + last_txid[-6:]
+    return (
+        f"🔔 Նոր փոխանցումներ!\n\n"
+        f"📌 Հասցե: `{address}`\n"
+        f"💰 Գումար: *{total_amount_dash:.8f}* DASH{usd_text}\n"
+        f"🕒 Ժամանակ: {timestamp}\n"
+        f"🆔 Վերջին TxID: `{short_txid}`\n"
+        f"🔗 [Տեսնել Blockchair-ում]({link})"
+    )
+
+def save_tx_log(log_data):
+    if os.path.exists(TX_LOG_FILE):
+        try:
+            existing = json.load(open(TX_LOG_FILE,"r",encoding="utf-8"))
+        except:
+            existing = []
+    else:
+        existing = []
+    existing.extend(log_data)
+    json.dump(existing, open(TX_LOG_FILE,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+
+# ===== Load data =====
+users = load_json(USERS_FILE)
+sent_txs = load_json(SENT_TX_FILE)
+
+# ===== Flask App =====
 app = Flask(__name__)
 
-# Կոնֆիգուրացիա
-BOT_TOKEN = os.environ.get("8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://uuui77-5zd8.onrender.com")
-
-# Բոտի ինիցիալիզացիա
-bot = telebot.TeleBot(BOT_TOKEN)
-
-# Ուղղաթիռային պահպանում (արտադրության համար փոխարինել տվյալների բազայով)
-users = {}
-sent_txs = {}
-
-# Օգնական ֆունկցիաներ
-def save_json(filename, data):
-    """Պահպանել տվյալները JSON ֆայլում"""
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def load_json(filename):
-    """Բեռնել տվյալները JSON ֆայլից"""
-    try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-# Dash հասցեի վավերացում
-def is_valid_dash_address(address):
-    """Ստուգել արդյոք Dash հասցեն վավեր է"""
-    pattern = r'^X[1-9A-HJ-NP-Za-km-z]{33}$'
-    return re.match(pattern, address) is not None
-
-# Վեբհուկի երթուղի
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     json_data = request.get_json()
@@ -46,131 +82,77 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-# Բոտի հրամաններ
-@bot.message_handler(commands=["start", "help"])
-def send_welcome(msg):
-    """Բոտի սկզբնական հաղորդագրություն"""
-    welcome_text = """
-    🇦🇲 Բարի գալուստ Dash տրանզակցիաների բոտ 🇦🇲
-
-    Այս բոտը թույլ կտա հետևել ձեր Dash հասցեներին և ստանալ ծանուցումներ բոլոր նոր տրանզակցիաների մասին:
-
-    📋 Հասանելի հրամաններ:
-    /add - Ավելացնել նոր Dash հասցե
-    /list - Դիտել իմ հասցեները
-    /remove - Հեռացնել հասցե
-    /help - Ցուցադրել օգնության տեղեկություն
-
-    Ուղարկեք ձեր Dash հասցեն (սկսվում է X-ով) կամ օգտագործեք /add հրամանը:
-    """
-    bot.reply_to(msg, welcome_text)
-
-@bot.message_handler(commands=["add"])
-def add_address(msg):
-    """Ավելացնել նոր հասցե"""
-    bot.reply_to(msg, "📥 Խնդրում ենք ուղարկել ձեր Dash հասցեն (սկսվում է X-ով):")
-
-@bot.message_handler(commands=["list"])
-def list_addresses(msg):
-    """Ցուցադրել բոլոր պահպանված հասցեները"""
-    user_id = str(msg.chat.id)
-    if user_id in users and users[user_id]:
-        addresses = "\n".join([f"• `{addr}`" for addr in users[user_id]])
-        bot.reply_to(msg, f"📋 Ձեր պահպանված հասցեները:\n{addresses}", parse_mode="Markdown")
-    else:
-        bot.reply_to(msg, "❌ Դուք դեռ չունեք պահպանված հասցեներ:\nՕգտագործեք /add հրամանը հասցե ավելացնելու համար:")
-
-@bot.message_handler(commands=["remove"])
-def remove_address(msg):
-    """Հեռացնել հասցե"""
-    user_id = str(msg.chat.id)
-    if user_id in users and users[user_id]:
-        # Ստեղծել հասցեների ստեղնաշար
-        markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        for addr in users[user_id]:
-            markup.add(addr)
-        bot.reply_to(msg, "🔽 Ընտրեք հասցեն հեռացնելու համար:", reply_markup=markup)
-        bot.register_next_step_handler(msg, process_remove_address)
-    else:
-        bot.reply_to(msg, "❌ Դուք դեռ չունեք պահպանված հասցեներ:\nՕգտագործեք /add հրամանը հասցե ավելացնելու համար:")
-
-def process_remove_address(msg):
-    """Մշակել հասցեի հեռացումը"""
-    user_id = str(msg.chat.id)
-    address = msg.text.strip()
-    
-    if user_id in users and address in users[user_id]:
-        users[user_id].remove(address)
-        save_json("users.json", users)
-        
-        # Հեռացնել նաև տրանզակցիաների պատմությունը
-        if user_id in sent_txs and address in sent_txs[user_id]:
-            del sent_txs[user_id][address]
-            save_json("sent_txs.json", sent_txs)
-        
-        # Հեռացնել ստեղնաշարը
-        markup = telebot.types.ReplyKeyboardRemove()
-        bot.reply_to(msg, f"✅ Հասցեն `{address}` հաջողությամբ հեռացվեց:", reply_markup=markup, parse_mode="Markdown")
-    else:
-        bot.reply_to(msg, "❌ Այս հասցեն չի գտնվել ձեր պահպանված հասցեների ցանկում:")
+# ===== Telegram handlers =====
+@bot.message_handler(commands=["start"])
+def start(msg):
+    bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
-    """Պահպանել նոր հասցե"""
     user_id = str(msg.chat.id)
     address = msg.text.strip()
-    
-    if not is_valid_dash_address(address):
-        bot.reply_to(msg, "❌ Անվավեր Dash հասցե: Խնդրում ենք ներմուծել վավեր հասցե, որը սկսվում է X-ով և ունի 34 նիշ:")
-        return
-    
-    if user_id not in users:
-        users[user_id] = []
-    
-    if address in users[user_id]:
-        bot.reply_to(msg, f"ℹ️ Հասցեն `{address}` արդեն գոյություն ունի ձեր պահպանված հասցեների ցանկում:", parse_mode="Markdown")
-        return
-    
-    users[user_id].append(address)
-    save_json("users.json", users)
+    users.setdefault(user_id, [])
+    if address not in users[user_id]:
+        users[user_id].append(address)
+    save_json(USERS_FILE, users)
 
-    if user_id not in sent_txs:
-        sent_txs[user_id] = {}
-    sent_txs[user_id][address] = []
-    save_json("sent_txs.json", sent_txs)
+    sent_txs.setdefault(user_id, {})
+    sent_txs[user_id].setdefault(address, [])
+    save_json(SENT_TX_FILE, sent_txs)
 
-    bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց:\nԱյժմ ես կուղարկեմ նոր տրանզակցիաների ծանուցումներ:", parse_mode="Markdown")
+    bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց։ Այժմ ես կուղարկեմ նոր տրանզակցիաների ծանուցումներ։")
 
-@bot.message_handler(func=lambda m: True)
-def handle_other_messages(msg):
-    """Մշակել այլ հաղորդագրություններ"""
-    if msg.text.startswith('/'):
-        bot.reply_to(msg, "❌ Անհայտ հրաման: Օգտագործեք /help բոլոր հասանելի հրամանները տեսնելու համար:")
-    else:
-        bot.reply_to(msg, "❌ Ես հասկանում եմ միայն Dash հասցեները (սկսվում են X-ով) կամ հրամանները:")
+# ===== Monitor thread =====
+def monitor():
+    while True:
+        price = get_dash_price_usd()
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        for user_id, addresses in users.items():
+            for address in addresses:
+                txs = get_latest_txs(address)
+                known = sent_txs.get(user_id, {}).get(address, [])
+                last_number = max([t["num"] for t in known], default=0)
 
-# Վեբ ինտերֆեյսի համար
-@app.route("/")
-def dashboard():
-    """Կառավարման վահանակի էջ"""
-    total_users = len(users)
-    total_addresses = sum(len(addrs) for addrs in users.values())
-    
-    return render_template('dashboard.html', 
-                         total_users=total_users,
-                         total_addresses=total_addresses)
+                total_amount = 0
+                last_txid = None
+                txs_to_log = []
 
+                for tx in reversed(txs):
+                    txid = tx.get("hash")
+                    if txid in [t["txid"] for t in known]:
+                        continue
+                    amount_dash = sum(out.get("value",0)/1e8 for out in tx.get("outputs",[]) if address in (out.get("addresses") or []))
+                    if amount_dash <= 0:
+                        continue
+                    total_amount += amount_dash
+                    last_txid = txid
+                    last_number += 1
+                    known.append({"txid": txid, "num": last_number})
+                    if len(known) > 30:
+                        known = known[-30:]
+                    txs_to_log.append({"txid": txid, "address": address, "amount": amount_dash, "timestamp": timestamp})
+
+                if txs_to_log:
+                    save_tx_log(txs_to_log)
+
+                if total_amount > 0 and last_txid:
+                    amount_usd = total_amount * price if price else None
+                    text = format_alert(address, total_amount, amount_usd, last_txid, timestamp)
+                    try:
+                        bot.send_message(user_id, text)
+                    except Exception as e:
+                        print("Send error:", e)
+
+                sent_txs.setdefault(user_id, {})[address] = known
+                save_json(SENT_TX_FILE, sent_txs)
+
+        time.sleep(8)
+
+# ===== Run Web Service =====
 if __name__ == "__main__":
-    # Բեռնել պահպանված տվյալները
-    users = load_json("users.json")
-    sent_txs = load_json("sent_txs.json")
-    
-    # Կարգավորել վեբհուկ
     bot.remove_webhook()
     bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
-    print("Վեբհուկը կարգավորված է:", f"{WEBHOOK_URL}/{BOT_TOKEN}")
-    
-    # Գործարկել հավելվածը
+    print("Webhook set:", f"{WEBHOOK_URL}/{BOT_TOKEN}")
+    threading.Thread(target=monitor, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
