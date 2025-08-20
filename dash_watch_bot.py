@@ -13,7 +13,6 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-# Bot handlers
 @bot.message_handler(commands=["start"])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋\nԳրի՛ր քո Dash հասցեն (սկսվում է X-ով):")
@@ -33,10 +32,10 @@ def save_address(msg):
 
     bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց։ Այժմ ես կուղարկեմ նոր տրանզակցիաների ծանուցումներ։")
 
-# **Չպետք է օգտագործել app.run Render-ում**
 if __name__ == "__main__":
-    print("Starting local server for testing...")
     bot.remove_webhook()
     bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
     print("Webhook set:", f"{WEBHOOK_URL}/{BOT_TOKEN}")
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
