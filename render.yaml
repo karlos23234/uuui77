@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: dash_watch_bot-web
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+
+  - type: worker
+    name: dash_watch_bot-worker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker.py
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
