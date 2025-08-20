@@ -4,7 +4,7 @@ from helpers import bot, users, sent_txs, save_json
 
 app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # https://uuui77-5zd8.onrender.com
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
@@ -32,9 +32,15 @@ def save_address(msg):
 
     bot.reply_to(msg, f"✅ Հասցեն `{address}` պահպանվեց։ Այժմ ես կուղարկեմ նոր տրանզակցիաների ծանուցումներ։")
 
+# Optional test route
+@app.route("/test")
+def test():
+    return "Server is running!"
+
 if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
     print("Webhook set:", f"{WEBHOOK_URL}/{BOT_TOKEN}")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
