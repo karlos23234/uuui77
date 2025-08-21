@@ -5,7 +5,12 @@ services:
     region: frankfurt
     plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python app.py"
+    startCommand: "gunicorn app:app"
     envVars:
       - key: BOT_TOKEN
+        value: "8452512822:AAHzuTQLtNVIu3K-WdHUWFDohg72z4YT0v8"
         sync: false
+      - key: WEBHOOK_URL
+        value: "https://uuui77-1-t71s.onrender.com/8452512822:AAHzuTQLtNVIu3K-WdHUWFDohg72z4YT0v8"
+        sync: false
+
