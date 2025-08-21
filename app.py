@@ -2,17 +2,20 @@ import os
 import json
 import requests
 import time
-import threading
 from datetime import datetime
+import threading
 import telebot
 from flask import Flask, request
 
-# ===== Environment variables =====
+# ===== Settings =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN որպես Environment Variable")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+APP_URL = os.getenv("APP_URL")  # Render domain, օրինակ: https://your-app.onrender.com
+
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
+server = Flask(__name__)
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
@@ -45,23 +48,17 @@ def get_latest_txs(address):
         return []
 
 # ===== Format Alert =====
-def format_alert(tx, address, tx_number, price, status):
+def format_alert(tx, address, tx_number, price):
     txid = tx["hash"]
     total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
     usd_text = f" (${total_received*price:.2f})" if price else ""
-
-    timestamp = tx.get("confirmed") or tx.get("received")
-    if timestamp:
-        timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        timestamp = "Unknown"
-
+    timestamp = tx.get("confirmed")
+    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Pending"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
         f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
         f"🕒 Time: {timestamp}\n"
-        f"📌 Status: {status}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}"
     )
 
@@ -92,59 +89,41 @@ def monitor_loop():
                 for address in addresses:
                     txs = get_latest_txs(address)
                     known = sent_txs.get(user_id, {}).get(address, [])
-                    if not isinstance(known, list):
-                        known = []
                     last_number = max([t["num"] for t in known], default=0)
-
                     for tx in reversed(txs):
-                        txid = tx["hash"]
-                        saved = next((t for t in known if t["txid"] == txid), None)
-
-                        if not saved:
-                            # Նոր գործարք → Pending անմիջապես
-                            last_number += 1
-                            alert = format_alert(tx, address, last_number, price, "⏳ Pending")
-                            try:
-                                bot.send_message(user_id, alert)
-                            except Exception as e:
-                                print("Telegram send error:", e)
-
-                            known.append({"txid": txid, "num": last_number, "confirmed": False})
-
-                        else:
-                            # Եթե Pending արդեն ուղարկված է, բայց հիմա Confirmed է
-                            if not saved.get("confirmed") and tx.get("confirmed"):
-                                alert = format_alert(tx, address, saved["num"], price, "✅ Confirmed")
-                                try:
-                                    bot.send_message(user_id, alert)
-                                except Exception as e:
-                                    print("Telegram send error:", e)
-
-                                saved["confirmed"] = True
-
+                        if tx["hash"] in [t["txid"] for t in known]:
+                            continue
+                        last_number += 1
+                        alert = format_alert(tx, address, last_number, price)
+                        try:
+                            bot.send_message(user_id, alert)
+                        except Exception as e:
+                            print("Telegram send error:", e)
+                        known.append({"txid": tx["hash"], "num": last_number})
                     sent_txs.setdefault(user_id, {})[address] = known
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
         time.sleep(15)
 
-# ===== Start Monitor Thread =====
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ===== Webhook Server =====
-app = Flask(__name__)
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+# ===== Flask Webhook =====
+@server.route(f"/{BOT_TOKEN}", methods=['POST'])
 def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
     return "OK", 200
 
-@app.route("/", methods=["GET"])
-def home():
-    return "Dash Watch Bot is running!"
+@server.route("/")
+def index():
+    return "Bot is running!", 200
 
+# ===== Start Flask =====
 if __name__ == "__main__":
     bot.remove_webhook()
-    bot.set_webhook(url=f"https://YOUR-DOMAIN.onrender.com/{BOT_TOKEN}")  # ⚠️ քո դոմեյնը դիր այստեղ
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    time.sleep(1)
+    bot.set_webhook(url=f"{APP_URL}/{BOT_TOKEN}")
+    server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
