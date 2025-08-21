@@ -9,7 +9,7 @@ import telebot
 # ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN որպես Environment Variable")
+    raise ValueError("Add BOT_TOKEN as an Environment Variable")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
