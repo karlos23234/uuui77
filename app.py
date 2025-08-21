@@ -2,16 +2,14 @@ import os
 import json
 import requests
 import time
-from datetime import datetime
 import threading
-from flask import Flask, request
 import telebot
+from datetime import datetime
 
-# ===== Environment variables =====
+# ===== Environment Variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Environment Variable")
+if not BOT_TOKEN:
+    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN որպես Environment Variable")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -75,7 +73,7 @@ def save_address(msg):
     save_json(SENT_TX_FILE, sent_txs)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background loop (webhook compatible) =====
+# ===== Background Loop =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -100,24 +98,6 @@ def monitor():
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# ===== Flask server for Render =====
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    json_str = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return "OK", 200
-
-# ===== Setup webhook =====
-bot.remove_webhook()
-bot.set_webhook(url=WEBHOOK_URL)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+# ===== Start polling =====
+bot.infinity_polling(timeout=10, long_polling_timeout=5)
 
