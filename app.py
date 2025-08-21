@@ -16,7 +16,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
 users = {}
-last_seen = {}  # պահելու ենք վերջին TXID յուրաքանչյուր հասցեի համար
+sent_txs = {}  # {address: [txid1, txid2, ...]} TXIDs պահպանելու համար
 
 def get_dash_price_usd():
     try:
@@ -44,9 +44,7 @@ def format_alert(tx, address, price, tx_number):
         if address in addrs:
             total_received += float(o.get("value", 0) or 0)
 
-    usd_amount = total_received * (price or 0)
-    usd_text = f" (${usd_amount:.2f})"
-
+    usd_text = f" (${total_received*price:.2f})" if price else ""
     confirmations = tx.get("confirmations", 0)
     status = "✅ Confirmed" if confirmations > 0 else "⏳ Pending"
 
@@ -65,8 +63,6 @@ def format_alert(tx, address, price, tx_number):
         f"📄 Status: {status}"
     )
 
-
-
 @bot.message_handler(commands=['start'])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋 Գրիր քո Dash հասցեն (սկսվում է X-ով)")
@@ -80,8 +76,6 @@ def save_address(msg):
         users[user_id].append(address)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-sent_txs = {}  # {address: [txid1, txid2, ...]}
-
 def monitor_loop():
     while True:
         try:
@@ -90,7 +84,6 @@ def monitor_loop():
                 for address in addresses:
                     txs = get_latest_txs(address)
                     txs.reverse()  # հինից նորին
-
                     sent_txs.setdefault(address, [])
 
                     for tx in txs:
@@ -98,15 +91,18 @@ def monitor_loop():
                         if txid in sent_txs[address]:
                             continue  # արդեն ուղարկված է
 
-                        alert = format_alert(tx, address, price)
+                        tx_number = len(sent_txs[address]) + 1
+                        alert = format_alert(tx, address, price, tx_number)
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
 
                         sent_txs[address].append(txid)
+
         except Exception as e:
             print("Monitor loop error:", e)
+
         time.sleep(10)
 
 threading.Thread(target=monitor_loop, daemon=True).start()
@@ -123,7 +119,4 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
-
-
 
