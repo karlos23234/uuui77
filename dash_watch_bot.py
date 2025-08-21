@@ -1,61 +1,20 @@
-import os
-import json
-import requests
-import time
-from datetime import datetime, timezone
-import threading
-from flask import Flask, request
 import telebot
+import threading
+import time
+import json
 
-# ===== Environment variables =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Environment Variable")
-
+# Քո BotFather-ից ստացած token-ը
+BOT_TOKEN = "8482347131:AAGK01gx86UGXw0bY87rnfDm2-QWkDBLeDI"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-USERS_FILE = "users.json"
-SENT_TX_FILE = "sent_txs.json"
+# Հիշողության dict-եր
+users = {}
+sent_txs = {}
 
-# ===== Helpers =====
-def load_json(file):
-    return json.load(open(file, "r", encoding="utf-8")) if os.path.exists(file) else {}
-
-def save_json(file, data):
-    with open(file, "w", encoding="utf-8") as f:
+# JSON ֆայլ պահելու ֆունկցիա
+def save_json(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
-users = load_json(USERS_FILE)
-sent_txs = load_json(SENT_TX_FILE)
-
-def get_dash_price_usd():
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=10)
-        return float(r.json().get("dash", {}).get("usd", 0))
-    except:
-        return None
-
-def get_latest_txs(address):
-    try:
-        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10", timeout=20)
-        return r.json().get("txs", [])
-    except:
-        return []
-
-def format_alert(tx, address, tx_number, price):
-    txid = tx["hash"]
-    total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
-    usd_text = f" (${total_received*price:.2f})" if price else ""
-    timestamp = tx.get("confirmed")
-    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
-    return (
-        f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
-        f"📌 Address: {address}\n"
-        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
-        f"🕒 Time: {timestamp}\n"
-        f"🔗 https://blockchair.com/dash/transaction/{txid}"
-    )
 
 # ===== Telegram Handlers =====
 @bot.message_handler(commands=['start'])
@@ -69,54 +28,22 @@ def save_address(msg):
     users.setdefault(user_id, [])
     if address not in users[user_id]:
         users[user_id].append(address)
-    save_json(USERS_FILE, users)
+    save_json("users.json", users)
     sent_txs.setdefault(user_id, {})
     sent_txs[user_id].setdefault(address, [])
-    save_json(SENT_TX_FILE, sent_txs)
+    save_json("sent_txs.json", sent_txs)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background loop =====
+# ===== Մոնիթորինգի ֆունկցիա (օրինակ) =====
 def monitor():
     while True:
-        price = get_dash_price_usd()
-        for user_id, addresses in users.items():
-            for address in addresses:
-                txs = get_latest_txs(address)
-                known = [t["txid"] for t in sent_txs.get(user_id, {}).get(address, [])]
-                last_number = max([t.get("num",0) for t in sent_txs.get(user_id, {}).get(address, [])], default=0)
-                for tx in reversed(txs):
-                    txid = tx["hash"]
-                    if txid in known:
-                        continue
-                    last_number += 1
-                    alert = format_alert(tx, address, last_number, price)
-                    try:
-                        bot.send_message(user_id, alert)
-                    except Exception as e:
-                        print("Telegram send error:", e)
-                    sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
-        save_json(SENT_TX_FILE, sent_txs)
-        time.sleep(5)  # 5 վայրկյանից ստուգում նոր TX-ների համար
+        print("⏳ Monitor loop is running...")
+        time.sleep(30)  # ամեն 30վրկ մեկ
 
+# Մոնիթորինգը առանձին թելով
 threading.Thread(target=monitor, daemon=True).start()
 
-# ===== Flask server for Render =====
-app = Flask(__name__)
+print("🤖 Bot is running...")
+bot.infinity_polling(skip_pending=True)
 
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    json_str = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return "OK", 200
-
-bot.remove_webhook()
-bot.set_webhook(url=WEBHOOK_URL)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
 
