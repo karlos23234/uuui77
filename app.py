@@ -34,7 +34,7 @@ def get_latest_txs(address):
         print("Error fetching TXs:", e)
         return []
 
-def format_alert(tx, address, price):
+def format_alert(tx, address, price, tx_number):
     txid = tx.get("txid")
     outputs = tx.get("vout", [])
     total_received = 0.0
@@ -44,7 +44,6 @@ def format_alert(tx, address, price):
         if address in addrs:
             total_received += float(o.get("value", 0) or 0)
 
-    # Համոզվենք, որ price թիվ է
     usd_amount = total_received * (price or 0)
     usd_text = f" (${usd_amount:.2f})"
 
@@ -58,13 +57,14 @@ def format_alert(tx, address, price):
         timestamp = "Unknown"
 
     return (
-        f"🔔 Նոր փոխանցում!\n"
+        f"🔔 Նոր փոխանցում #{tx_number}!\n"
         f"📌 Address: {address}\n"
         f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
         f"🕒 Time: {timestamp}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}\n"
         f"📄 Status: {status}"
     )
+
 
 
 @bot.message_handler(commands=['start'])
@@ -123,6 +123,7 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
 
 
