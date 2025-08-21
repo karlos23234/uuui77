@@ -30,7 +30,7 @@ sent_txs = load_json(SENT_TX_FILE)
 # ===== Price API =====
 def get_dash_price_usd():
     try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=10)
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=35)
         return float(r.json().get("dash", {}).get("usd", 0))
     except:
         return None
@@ -38,7 +38,7 @@ def get_dash_price_usd():
 # ===== Transactions API =====
 def get_latest_txs(address):
     try:
-        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=20", timeout=35)
+        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=0", timeout=35)
         return r.json().get("txs", [])
     except:
         return []
@@ -100,11 +100,12 @@ def monitor_loop():
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
-        time.sleep(5)
+        time.sleep(3)
 
 # ===== Start Monitor Thread =====
 threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Start Bot Polling =====
 bot.infinity_polling()
+
 
