@@ -7,8 +7,9 @@ from datetime import datetime
 import telebot
 from flask import Flask, request
 
+# ===== Environment Variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")  # render domain օրինակ https://your-app.onrender.com
+APP_URL = os.getenv("APP_URL")  # օրինակ https://uuui77-5zd8.onrender.com
 
 if not BOT_TOKEN or not APP_URL:
     raise ValueError("Պահանջվում է BOT_TOKEN և APP_URL Environment variables")
@@ -19,6 +20,7 @@ app = Flask(__name__)
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
 
+# ===== JSON Helpers =====
 def load_json(file):
     return json.load(open(file, "r", encoding="utf-8")) if os.path.exists(file) else {}
 
@@ -29,6 +31,7 @@ def save_json(file, data):
 users = load_json(USERS_FILE)
 sent_txs = load_json(SENT_TX_FILE)
 
+# ===== Dash Price =====
 def get_dash_price_usd():
     try:
         r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=10)
@@ -36,6 +39,7 @@ def get_dash_price_usd():
     except:
         return None
 
+# ===== Get Latest TXs =====
 def get_latest_txs(address):
     try:
         r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=5", timeout=20)
@@ -43,15 +47,13 @@ def get_latest_txs(address):
     except:
         return []
 
+# ===== Format Alert =====
 def format_alert(tx, address, tx_number, price, status):
     txid = tx["hash"]
     total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
     usd_text = f" (${total_received*price:.2f})" if price else ""
     timestamp = tx.get("confirmed") or tx.get("received")
-    if timestamp:
-        timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        timestamp = "Pending"
+    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Pending"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
@@ -97,7 +99,7 @@ def monitor_loop():
                         saved = next((t for t in known if t["txid"] == txid), None)
 
                         if not saved:
-                            # Նոր TX → Pending
+                            # New TX → Pending
                             last_number += 1
                             alert = format_alert(tx, address, last_number, price, "⏳ Pending")
                             try:
@@ -123,7 +125,7 @@ def monitor_loop():
 
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ===== Webhook Routes =====
+# ===== Webhook Route =====
 @app.route(f"/{BOT_TOKEN}", methods=['POST'])
 def webhook():
     update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
@@ -134,8 +136,10 @@ def webhook():
 def home():
     return "Dash Watch Bot running!", 200
 
+# ===== Start App =====
 if __name__ == "__main__":
     bot.remove_webhook()
     time.sleep(1)
     bot.set_webhook(url=f"{APP_URL}/{BOT_TOKEN}")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
