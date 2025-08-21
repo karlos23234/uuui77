@@ -3,6 +3,7 @@ import json
 import requests
 import time
 from datetime import datetime
+import threading
 from flask import Flask, request
 import telebot
 
@@ -69,14 +70,37 @@ def save_address(msg):
     if address not in users[user_id]:
         users[user_id].append(address)
     save_json(USERS_FILE, users)
-
     sent_txs.setdefault(user_id, {})
     sent_txs[user_id].setdefault(address, [])
     save_json(SENT_TX_FILE, sent_txs)
-
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Flask server for webhook =====
+# ===== Background loop (webhook compatible) =====
+def monitor():
+    while True:
+        price = get_dash_price_usd()
+        for user_id, addresses in users.items():
+            for address in addresses:
+                txs = get_latest_txs(address)
+                known = sent_txs.get(user_id, {}).get(address, [])
+                last_number = max([t["num"] for t in known], default=0)
+                for tx in reversed(txs):
+                    if tx["hash"] in [t["txid"] for t in known]:
+                        continue
+                    last_number += 1
+                    alert = format_alert(tx, address, last_number, price)
+                    try:
+                        bot.send_message(user_id, alert)
+                    except Exception as e:
+                        print("Telegram send error:", e)
+                    known.append({"txid": tx["hash"], "num": last_number})
+                sent_txs.setdefault(user_id, {})[address] = known
+        save_json(SENT_TX_FILE, sent_txs)
+        time.sleep(15)
+
+threading.Thread(target=monitor, daemon=True).start()
+
+# ===== Flask server for Render =====
 app = Flask(__name__)
 
 @app.route("/")
@@ -90,39 +114,9 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-# ===== Background monitoring loop =====
-def monitor():
-    while True:
-        price = get_dash_price_usd()
-        for user_id, addresses in users.items():
-            for address in addresses:
-                txs = get_latest_txs(address)
-                known = sent_txs.get(user_id, {}).get(address, [])
-                known_txids = [t["txid"] for t in known]
-                last_number = max([t["num"] for t in known], default=0)
-
-                for tx in reversed(txs):
-                    if tx["hash"] in known_txids:
-                        continue
-                    last_number += 1
-                    alert = format_alert(tx, address, last_number, price)
-                    try:
-                        bot.send_message(user_id, alert)
-                    except Exception as e:
-                        print("Telegram send error:", e)
-                    known.append({"txid": tx["hash"], "num": last_number})
-
-                sent_txs.setdefault(user_id, {})[address] = known
-
-        save_json(SENT_TX_FILE, sent_txs)
-        time.sleep(15)  # ստուգել նոր txs ամեն 15 վայրկյանը
-
-# ===== Start webhook & monitor =====
-bot.remove_webhook(drop_pending_updates=True)
+# ===== Setup webhook =====
+bot.remove_webhook()
 bot.set_webhook(url=WEBHOOK_URL)
-
-import threading
-threading.Thread(target=monitor, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
