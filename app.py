@@ -35,21 +35,34 @@ def get_dash_price_usd():
     except:
         return None
 
-# ===== Transactions API =====
+# ===== Transactions API (Blockchair) =====
 def get_latest_txs(address):
     try:
-        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10", timeout=20)
-        return r.json().get("txs", [])
+        r = requests.get(f"https://api.blockchair.com/dash/dash/address/{address}/transactions", timeout=20)
+        data = r.json().get("data", {})
+        return list(data.keys())  # TX hash-ների ցանկը
     except:
         return []
 
+def get_tx_details(txid):
+    try:
+        r = requests.get(f"https://api.blockchair.com/dash/dash/transaction/{txid}", timeout=15)
+        return r.json().get("data", {}).get(txid)
+    except:
+        return None
+
 # ===== Format Alert =====
-def format_alert(tx, address, tx_number, price):
-    txid = tx["hash"]
-    total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
+def format_alert(txid, address, tx_number, price, tx_details=None):
+    total_received = 0
+    timestamp = "Pending"
+    if tx_details:
+        for o in tx_details.get("outputs", []):
+            if address in (o.get("addresses") or []):
+                total_received += o["value"]/1e8
+        ts = tx_details.get("time")
+        if ts:
+            timestamp = datetime.fromisoformat(ts.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S")
     usd_text = f" (${total_received*price:.2f})" if price else ""
-    timestamp = tx.get("confirmed")
-    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
@@ -84,19 +97,19 @@ def monitor_loop():
             for user_id, addresses in users.items():
                 for address in addresses:
                     txs = get_latest_txs(address)
-                    known = sent_txs.get(user_id, {}).get(address, [])
-                    last_number = max([t["num"] for t in known], default=0)
-                    for tx in reversed(txs):
-                        if tx["hash"] in [t["txid"] for t in known]:
+                    known_txids = [t["txid"] for t in sent_txs.get(user_id, {}).get(address, [])]
+                    last_number = max([t["num"] for t in sent_txs.get(user_id, {}).get(address, [])], default=0)
+                    for txid in reversed(txs):
+                        if txid in known_txids:
                             continue
                         last_number += 1
-                        alert = format_alert(tx, address, last_number, price)
+                        tx_details = get_tx_details(txid)
+                        alert = format_alert(txid, address, last_number, price, tx_details)
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
-                        known.append({"txid": tx["hash"], "num": last_number})
-                    sent_txs.setdefault(user_id, {})[address] = known
+                        sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
