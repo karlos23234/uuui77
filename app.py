@@ -2,7 +2,7 @@ from flask import Flask, request
 import telebot
 import os
 
-API_TOKEN = 'քո բոտի token'
+API_TOKEN = '8482347131:AAGK01gx86UGXw0bY87rnfDm2-QWkDBLeDI'
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
@@ -24,4 +24,5 @@ if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=f"https://ՔՈ_DOMAIN/{API_TOKEN}")
     app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
+
 
