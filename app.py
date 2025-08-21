@@ -37,16 +37,26 @@ def get_latest_txs(address):
 def format_alert(tx, address, price):
     txid = tx.get("txid")
     outputs = tx.get("vout", [])
-    total_received = 0
+    total_received = 0.0
+
     for o in outputs:
         addrs = o.get("scriptPubKey", {}).get("addresses", [])
         if address in addrs:
             total_received += float(o.get("value", 0) or 0)
-    usd_text = f" (${total_received*price:.2f})" if price else ""
+
+    # Համոզվենք, որ price թիվ է
+    usd_amount = total_received * (price or 0)
+    usd_text = f" (${usd_amount:.2f})"
+
     confirmations = tx.get("confirmations", 0)
     status = "✅ Confirmed" if confirmations > 0 else "⏳ Pending"
+
     timestamp = tx.get("time")
-    timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
+    if timestamp:
+        timestamp = datetime.utcfromtimestamp(int(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        timestamp = "Unknown"
+
     return (
         f"🔔 Նոր փոխանցում!\n"
         f"📌 Address: {address}\n"
@@ -55,6 +65,7 @@ def format_alert(tx, address, price):
         f"🔗 https://blockchair.com/dash/transaction/{txid}\n"
         f"📄 Status: {status}"
     )
+
 
 @bot.message_handler(commands=['start'])
 def start(msg):
@@ -112,5 +123,6 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
 
