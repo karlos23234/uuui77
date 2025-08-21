@@ -9,10 +9,10 @@ from flask import Flask, request
 
 # ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN որպես Environment Variable")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Օրինակ: https://yourdomain.com/YOUR_BOT_TOKEN
+if not BOT_TOKEN or not WEBHOOK_URL:
+    raise ValueError("Missing BOT_TOKEN or WEBHOOK_URL")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -39,34 +39,30 @@ def get_dash_price_usd():
     except:
         return None
 
-# ===== Transactions API (Insight) =====
+# ===== Transactions API (Blockchair) =====
 def get_latest_txs(address):
     try:
-        r = requests.get(f"https://insight.dash.org/insight-api/txs/?address={address}", timeout=15)
+        r = requests.get(f"https://api.blockchair.com/dash/dash/dash-address-transactions/{address}", timeout=15)
         data = r.json()
-        return data.get("txs", [])
+        return data.get("data", [])
     except Exception as e:
         print("Error fetching TXs:", e)
         return []
 
 # ===== Format Alert =====
 def format_alert(tx, address, tx_number, price):
-    txid = tx.get("txid")
-    outputs = tx.get("vout", [])
-    total_received = 0
-    for o in outputs:
-        addrs = o.get("scriptPubKey", {}).get("addresses", [])
-        if address in addrs:
-            total_received += o.get("value", 0)
+    txid = tx.get("hash")
+    outputs = tx.get("outputs", [])
+    total_received = sum(o.get("value", 0)/1e8 for o in outputs if address in (o.get("recipient", []) or []))
     usd_text = f" (${total_received*price:.2f})" if price else ""
     timestamp = tx.get("time")
-    timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
+    timestamp = datetime.fromisoformat(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
         f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
         f"🕒 Time: {timestamp}\n"
-        f"🔗 https://blockchair.com/dash/transaction/{txid}"
+        f"🔗 https://blockchair.com/dash/transaction/"
     )
 
 # ===== Telegram Handlers =====
@@ -99,26 +95,22 @@ def monitor_loop():
                     last_number = max([t["num"] for t in known], default=0)
 
                     for tx in reversed(txs):
-                        txid = tx.get("txid")
+                        txid = tx.get("hash")
                         if txid in [t["txid"] for t in known]:
                             continue
                         last_number += 1
                         alert = format_alert(tx, address, last_number, price)
-
-                        print("🚨 NEW TX:", txid, "Amount:", alert)  # Debug print
-
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
-
                         known.append({"txid": txid, "num": last_number})
 
                     sent_txs.setdefault(user_id, {})[address] = known
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
-        time.sleep(10)  # ամեն 10 վայրկյան ստուգում
+        time.sleep(15)  # ամեն 15 վայրկյան ստուգում
 
 # Start background monitor
 threading.Thread(target=monitor_loop, daemon=True).start()
@@ -138,3 +130,4 @@ bot.set_webhook(url=WEBHOOK_URL)
 # ===== Run Flask Server =====
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
