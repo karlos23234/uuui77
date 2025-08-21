@@ -6,6 +6,7 @@ import threading
 import telebot
 from flask import Flask, request
 
+# ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
@@ -15,9 +16,11 @@ if not BOT_TOKEN or not WEBHOOK_URL:
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
+# ===== Users storage =====
 users = {}  # {user_id: [address1, address2, ...]}
 sent_txs = {}  # {user_id: {address: [txid1, txid2, ...]}}
 
+# ===== Dash price =====
 def get_dash_price_usd():
     try:
         r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=15)
@@ -25,6 +28,7 @@ def get_dash_price_usd():
     except:
         return None
 
+# ===== Fetch latest TXs =====
 def get_latest_txs(address):
     try:
         r = requests.get(f"https://insight.dash.org/insight-api/txs/?address={address}", timeout=15)
@@ -34,7 +38,8 @@ def get_latest_txs(address):
         print("Error fetching TXs:", e)
         return []
 
-def format_alert(tx, address, price):
+# ===== Format alert message =====
+def format_alert(tx, address, price, tx_number):
     txid = tx.get("txid")
     outputs = tx.get("vout", [])
     total_received = 0
@@ -48,7 +53,7 @@ def format_alert(tx, address, price):
     timestamp = tx.get("time")
     timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
-        f"🔔 Նոր փոխանցում!\n"
+        f"🔔 Նոր փոխանցում #{tx_number}!\n"
         f"📌 Address: {address}\n"
         f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
         f"🕒 Time: {timestamp}\n"
@@ -56,6 +61,7 @@ def format_alert(tx, address, price):
         f"📄 Status: {status}"
     )
 
+# ===== Telegram handlers =====
 @bot.message_handler(commands=['start'])
 def start(msg):
     bot.reply_to(msg, "Բարև 👋 Գրիր քո Dash հասցեն (սկսվում է X-ով)")
@@ -71,6 +77,7 @@ def save_address(msg):
     sent_txs[user_id].setdefault(address, [])
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
+# ===== Monitor loop =====
 def monitor_loop():
     while True:
         try:
@@ -82,13 +89,15 @@ def monitor_loop():
 
                     sent_txs.setdefault(user_id, {})
                     sent_txs[user_id].setdefault(address, [])
+                    last_number = len(sent_txs[user_id][address])  # TX համարների վերջին արժեք
 
                     for tx in txs:
                         txid = tx.get("txid")
                         if txid in sent_txs[user_id][address]:
-                            continue  # արդեն ուղարկված է այդ օգտատիրոջ համար
+                            continue
 
-                        alert = format_alert(tx, address, price)
+                        last_number += 1
+                        alert = format_alert(tx, address, price, last_number)
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
@@ -101,6 +110,7 @@ def monitor_loop():
 
 threading.Thread(target=monitor_loop, daemon=True).start()
 
+# ===== Webhook =====
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     json_str = request.get_data().decode("utf-8")
