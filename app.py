@@ -5,13 +5,17 @@ import time
 from datetime import datetime
 import threading
 import telebot
+from flask import Flask, request
 
 # ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN որպես Environment Variable")
 
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Օրինակ: https://yourdomain.com/YOUR_BOT_TOKEN
+
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
@@ -102,10 +106,21 @@ def monitor_loop():
             print("Monitor loop error:", e)
         time.sleep(3)
 
-# ===== Start Monitor Thread =====
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ===== Start Bot Polling =====
-bot.infinity_polling()
+# ===== Webhook Route =====
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
 
+# ===== Set Webhook =====
+bot.remove_webhook()
+bot.set_webhook(url=WEBHOOK_URL)
+
+# ===== Run Flask Server =====
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
 
