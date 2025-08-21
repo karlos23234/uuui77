@@ -13,7 +13,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
     raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Environment Variable")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
@@ -96,7 +96,7 @@ def monitor():
                         print("Telegram send error:", e)
                     sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
         save_json(SENT_TX_FILE, sent_txs)
-        time.sleep(5)  # 5 վայրկյանից ստուգում նոր TX-ների համար
+        time.sleep(8)  # Ստուգում նոր TX-երի համար ամեն 8 վայրկյան
 
 threading.Thread(target=monitor, daemon=True).start()
 
@@ -114,8 +114,11 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
+# ===== Webhook setup =====
 bot.remove_webhook()
-bot.set_webhook(url=WEBHOOK_URL)
+bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
