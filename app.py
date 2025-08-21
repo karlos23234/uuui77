@@ -39,28 +39,28 @@ def get_dash_price_usd():
     except:
         return None
 
-# ===== Transactions API (NEW - faster Insight) =====
+# ===== Transactions API (Insight) =====
 def get_latest_txs(address):
     try:
         r = requests.get(f"https://insight.dash.org/insight-api/txs/?address={address}", timeout=15)
-        return r.json().get("txs", [])
-    except:
+        data = r.json()
+        return data.get("txs", [])
+    except Exception as e:
+        print("Error fetching TXs:", e)
         return []
 
 # ===== Format Alert =====
 def format_alert(tx, address, tx_number, price):
-    txid = tx.get("txid") or tx.get("hash")
-    outputs = tx.get("vout", tx.get("outputs", []))
-    total_received = sum([
-        o.get("value", 0) if isinstance(o.get("value"), float) else o.get("value")/1e8
-        for o in outputs if address in (o.get("scriptPubKey", {}).get("addresses") or o.get("addresses") or [])
-    ])
+    txid = tx.get("txid")
+    outputs = tx.get("vout", [])
+    total_received = 0
+    for o in outputs:
+        addrs = o.get("scriptPubKey", {}).get("addresses", [])
+        if address in addrs:
+            total_received += o.get("value", 0)
     usd_text = f" (${total_received*price:.2f})" if price else ""
     timestamp = tx.get("time")
-    if timestamp:
-        timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        timestamp = "Unknown"
+    timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
@@ -87,7 +87,7 @@ def save_address(msg):
     save_json(SENT_TX_FILE, sent_txs)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background Monitor (FAST) =====
+# ===== Background Monitor =====
 def monitor_loop():
     while True:
         try:
@@ -99,11 +99,13 @@ def monitor_loop():
                     last_number = max([t["num"] for t in known], default=0)
 
                     for tx in reversed(txs):
-                        txid = tx.get("txid") or tx.get("hash")
+                        txid = tx.get("txid")
                         if txid in [t["txid"] for t in known]:
                             continue
                         last_number += 1
                         alert = format_alert(tx, address, last_number, price)
+
+                        print("🚨 NEW TX:", txid, "Amount:", alert)  # Debug print
 
                         try:
                             bot.send_message(user_id, alert)
@@ -116,7 +118,7 @@ def monitor_loop():
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
-        time.sleep(10)  # Ամեն 10 վայրկյանը մեկ ստուգում
+        time.sleep(10)  # ամեն 10 վայրկյան ստուգում
 
 # Start background monitor
 threading.Thread(target=monitor_loop, daemon=True).start()
