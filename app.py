@@ -48,7 +48,6 @@ def format_alert(tx, address, tx_number, price):
     txid = tx["hash"]
     total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
     
-    # Ուզում ենք համոզվել, որ price միշտ լցված է
     if not price:
         price = get_dash_price_usd() or 0
     
@@ -115,5 +114,6 @@ threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Start Bot Polling =====
 bot.infinity_polling()
+
 
 
