@@ -69,6 +69,8 @@ def save_address(msg):
         users[user_id].append(address)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
+sent_txs = {}  # {address: [txid1, txid2, ...]}
+
 def monitor_loop():
     while True:
         try:
@@ -76,27 +78,22 @@ def monitor_loop():
             for user_id, addresses in users.items():
                 for address in addresses:
                     txs = get_latest_txs(address)
-                    txs.reverse()  # հինից դեպի նոր
+                    txs.reverse()  # հինից նորին
 
-                    last_txid = last_seen.get(address)
-                    new_txs = []
+                    sent_txs.setdefault(address, [])
 
                     for tx in txs:
-                        if tx.get("txid") == last_txid:
-                            break
-                        new_txs.append(tx)
+                        txid = tx.get("txid")
+                        if txid in sent_txs[address]:
+                            continue  # արդեն ուղարկված է
 
-                    new_txs.reverse()  # ուղարկել պետք է հինից նորին
-
-                    for tx in new_txs:
                         alert = format_alert(tx, address, price)
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
 
-                    if txs:
-                        last_seen[address] = txs[-1].get("txid")
+                        sent_txs[address].append(txid)
         except Exception as e:
             print("Monitor loop error:", e)
         time.sleep(10)
@@ -115,4 +112,5 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
