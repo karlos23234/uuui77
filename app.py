@@ -38,9 +38,9 @@ def get_dash_price_usd():
 # ===== Transactions API (Blockchair) =====
 def get_latest_txs(address):
     try:
-        r = requests.get(f"https://api.blockchair.com/dash/dash/address/{address}/transactions", timeout=20)
+        r = requests.get(f"https://api.blockchair.com/dash/dash/address/{address}/transactions?limit=50", timeout=20)
         data = r.json().get("data", {})
-        return list(data.keys())  # TX hash-ների ցանկը
+        return list(data.keys())  # Վերադարձնում է TX hash-երի ցանկը
     except:
         return []
 
@@ -120,4 +120,3 @@ threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Start Bot Polling =====
 bot.infinity_polling()
-
