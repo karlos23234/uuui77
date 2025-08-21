@@ -34,26 +34,33 @@ sent_txs = load_json(SENT_TX_FILE)
 # ===== Price API =====
 def get_dash_price_usd():
     try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=35)
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=15)
         return float(r.json().get("dash", {}).get("usd", 0))
     except:
         return None
 
-# ===== Transactions API =====
+# ===== Transactions API (NEW - faster Insight) =====
 def get_latest_txs(address):
     try:
-        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=0", timeout=35)
+        r = requests.get(f"https://insight.dash.org/insight-api/txs/?address={address}", timeout=15)
         return r.json().get("txs", [])
     except:
         return []
 
 # ===== Format Alert =====
 def format_alert(tx, address, tx_number, price):
-    txid = tx["hash"]
-    total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
+    txid = tx.get("txid") or tx.get("hash")
+    outputs = tx.get("vout", tx.get("outputs", []))
+    total_received = sum([
+        o.get("value", 0) if isinstance(o.get("value"), float) else o.get("value")/1e8
+        for o in outputs if address in (o.get("scriptPubKey", {}).get("addresses") or o.get("addresses") or [])
+    ])
     usd_text = f" (${total_received*price:.2f})" if price else ""
-    timestamp = tx.get("confirmed")
-    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
+    timestamp = tx.get("time")
+    if timestamp:
+        timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        timestamp = "Unknown"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
@@ -80,7 +87,7 @@ def save_address(msg):
     save_json(SENT_TX_FILE, sent_txs)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background Monitor (Debug Version) =====
+# ===== Background Monitor (FAST) =====
 def monitor_loop():
     while True:
         try:
@@ -92,27 +99,24 @@ def monitor_loop():
                     last_number = max([t["num"] for t in known], default=0)
 
                     for tx in reversed(txs):
-                        if tx["hash"] in [t["txid"] for t in known]:
+                        txid = tx.get("txid") or tx.get("hash")
+                        if txid in [t["txid"] for t in known]:
                             continue
                         last_number += 1
                         alert = format_alert(tx, address, last_number, price)
-
-                        # Debug: console output
-                        total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
-                        print(f"📌 New TX detected for {address}: {tx['hash']} | Amount: {total_received:.8f} DASH | USD: {total_received*price:.2f}" if price else "")
 
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
 
-                        known.append({"txid": tx["hash"], "num": last_number})
+                        known.append({"txid": txid, "num": last_number})
 
                     sent_txs.setdefault(user_id, {})[address] = known
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
-        time.sleep(3)
+        time.sleep(10)  # Ամեն 10 վայրկյանը մեկ ստուգում
 
 # Start background monitor
 threading.Thread(target=monitor_loop, daemon=True).start()
@@ -132,4 +136,3 @@ bot.set_webhook(url=WEBHOOK_URL)
 # ===== Run Flask Server =====
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
