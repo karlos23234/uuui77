@@ -27,48 +27,35 @@ def save_json(file, data):
 users = load_json(USERS_FILE)
 sent_txs = load_json(SENT_TX_FILE)
 
-# ===== Price API =====
-def get_dash_price_usd():
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=10)
-        return float(r.json().get("dash", {}).get("usd", 0))
-    except:
-        return None
-
-# ===== Transactions API (Blockchair) =====
+# ===== Fetch TXs from Insight API =====
 def get_latest_txs(address):
+    url = f"https://insight.dash.org/insight-api/addr/{address}/txs"
     try:
-        r = requests.get(f"https://api.blockchair.com/dash/dash/address/{address}/transactions?limit=50", timeout=20)
-        data = r.json().get("data", {})
-        return list(data.keys())  # Վերադարձնում է TX hash-երի ցանկը
-    except:
+        r = requests.get(url, timeout=15)
+        return r.json() if r.status_code == 200 else []
+    except Exception as e:
+        print("Insight API error:", e)
         return []
 
-def get_tx_details(txid):
-    try:
-        r = requests.get(f"https://api.blockchair.com/dash/dash/transaction/{txid}", timeout=15)
-        return r.json().get("data", {}).get(txid)
-    except:
-        return None
+# ===== Format TX message =====
+def format_alert(tx, address):
+    txid = tx.get("txid")
+    time_unix = tx.get("time")
+    timestamp = datetime.utcfromtimestamp(time_unix).strftime("%Y-%m-%d %H:%M:%S") if time_unix else "Pending"
 
-# ===== Format Alert =====
-def format_alert(txid, address, tx_number, price, tx_details=None):
     total_received = 0
-    timestamp = "Pending"
-    if tx_details:
-        for o in tx_details.get("outputs", []):
-            if address in (o.get("addresses") or []):
-                total_received += o["value"]/1e8
-        ts = tx_details.get("time")
-        if ts:
-            timestamp = datetime.fromisoformat(ts.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S")
-    usd_text = f" (${total_received*price:.2f})" if price else ""
+    for output in tx.get("vout", []):
+        if address in output.get("scriptPubKey", {}).get("addresses", []):
+            total_received += output.get("value", 0)
+
+    status = "Confirmed" if time_unix else "Pending"
     return (
-        f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
+        f"🔔 Նոր փոխանցում!\n\n"
         f"📌 Address: {address}\n"
-        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
+        f"💰 Amount: {total_received} DASH\n"
         f"🕒 Time: {timestamp}\n"
-        f"🔗 https://blockchair.com/dash/transaction/{txid}"
+        f"📌 Status: {status}\n"
+        f"🔗 https://insight.dash.org/insight/tx/{txid}"
     )
 
 # ===== Telegram Handlers =====
@@ -84,39 +71,47 @@ def save_address(msg):
     if address not in users[user_id]:
         users[user_id].append(address)
     save_json(USERS_FILE, users)
+
     sent_txs.setdefault(user_id, {})
     sent_txs[user_id].setdefault(address, [])
     save_json(SENT_TX_FILE, sent_txs)
+
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background Monitor =====
+# ===== Background monitor =====
 def monitor_loop():
     while True:
         try:
-            price = get_dash_price_usd()
             for user_id, addresses in users.items():
                 for address in addresses:
                     txs = get_latest_txs(address)
-                    known_txids = [t["txid"] for t in sent_txs.get(user_id, {}).get(address, [])]
-                    last_number = max([t["num"] for t in sent_txs.get(user_id, {}).get(address, [])], default=0)
-                    for txid in reversed(txs):
-                        if txid in known_txids:
+                    known = sent_txs.get(user_id, {}).get(address, [])
+
+                    # From oldest to newest
+                    for tx in reversed(txs):
+                        txid = tx.get("txid")
+                        if txid in [t["txid"] for t in known]:
                             continue
-                        last_number += 1
-                        tx_details = get_tx_details(txid)
-                        alert = format_alert(txid, address, last_number, price, tx_details)
+
+                        alert = format_alert(tx, address)
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
-                        sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
+
+                        # Save sent TX
+                        known.append({"txid": txid})
+                    
+                    sent_txs.setdefault(user_id, {})[address] = known
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
-        time.sleep(15)
 
-# ===== Start Monitor Thread =====
+        time.sleep(15)  # ստուգում յուրաքանչյուր 15 վայրկյանում
+
+# ===== Start monitor thread =====
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ===== Start Bot Polling =====
+# ===== Start bot polling =====
 bot.infinity_polling()
+
