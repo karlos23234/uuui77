@@ -15,8 +15,8 @@ if not BOT_TOKEN or not WEBHOOK_URL:
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-users = {}
-sent_txs = {}  # {address: [txid1, txid2, ...]} TXIDs պահպանելու համար
+users = {}  # {user_id: [address1, address2, ...]}
+sent_txs = {}  # {user_id: {address: [txid1, txid2, ...]}}
 
 def get_dash_price_usd():
     try:
@@ -34,28 +34,21 @@ def get_latest_txs(address):
         print("Error fetching TXs:", e)
         return []
 
-def format_alert(tx, address, price, tx_number):
+def format_alert(tx, address, price):
     txid = tx.get("txid")
     outputs = tx.get("vout", [])
-    total_received = 0.0
-
+    total_received = 0
     for o in outputs:
         addrs = o.get("scriptPubKey", {}).get("addresses", [])
         if address in addrs:
             total_received += float(o.get("value", 0) or 0)
-
     usd_text = f" (${total_received*price:.2f})" if price else ""
     confirmations = tx.get("confirmations", 0)
     status = "✅ Confirmed" if confirmations > 0 else "⏳ Pending"
-
     timestamp = tx.get("time")
-    if timestamp:
-        timestamp = datetime.utcfromtimestamp(int(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        timestamp = "Unknown"
-
+    timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
-        f"🔔 Նոր փոխանցում #{tx_number}!\n"
+        f"🔔 Նոր փոխանցում!\n"
         f"📌 Address: {address}\n"
         f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
         f"🕒 Time: {timestamp}\n"
@@ -74,6 +67,8 @@ def save_address(msg):
     users.setdefault(user_id, [])
     if address not in users[user_id]:
         users[user_id].append(address)
+    sent_txs.setdefault(user_id, {})
+    sent_txs[user_id].setdefault(address, [])
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
 def monitor_loop():
@@ -84,25 +79,24 @@ def monitor_loop():
                 for address in addresses:
                     txs = get_latest_txs(address)
                     txs.reverse()  # հինից նորին
-                    sent_txs.setdefault(address, [])
+
+                    sent_txs.setdefault(user_id, {})
+                    sent_txs[user_id].setdefault(address, [])
 
                     for tx in txs:
                         txid = tx.get("txid")
-                        if txid in sent_txs[address]:
-                            continue  # արդեն ուղարկված է
+                        if txid in sent_txs[user_id][address]:
+                            continue  # արդեն ուղարկված է այդ օգտատիրոջ համար
 
-                        tx_number = len(sent_txs[address]) + 1
-                        alert = format_alert(tx, address, price, tx_number)
+                        alert = format_alert(tx, address, price)
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
 
-                        sent_txs[address].append(txid)
-
+                        sent_txs[user_id][address].append(txid)
         except Exception as e:
             print("Monitor loop error:", e)
-
         time.sleep(10)
 
 threading.Thread(target=monitor_loop, daemon=True).start()
