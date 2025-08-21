@@ -2,17 +2,16 @@ import os
 import json
 import requests
 import time
-import threading
 from datetime import datetime, timezone
+import threading
 from flask import Flask, request
 import telebot
 
 # ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-
 if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Environment Variable")
+    raise ValueError("Add BOT_TOKEN and WEBHOOK_URL as Environment Variables!")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -26,6 +25,9 @@ def load_json(file):
 def save_json(file, data):
     with open(file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+users = load_json(USERS_FILE)
+sent_txs = load_json(SENT_TX_FILE)
 
 def get_dash_price_usd():
     try:
@@ -48,18 +50,14 @@ def format_alert(tx, address, tx_number, price):
     timestamp = tx.get("confirmed")
     timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
-        f"🔔 Նոր փոխանցում #{tx_number}!\n"
-        f"📌 Address: {address}\n"
-        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
-        f"🕒 Time: {timestamp}\n"
+        f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
+        f"📌 Հասցե: {address}\n"
+        f"💰 Գումար: {total_received:.8f} DASH{usd_text}\n"
+        f"🕒 Ժամանակ: {timestamp}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}"
     )
 
 # ===== Telegram Handlers =====
-@bot.message_handler(commands=['start'])
-def start(msg):
-    bot.reply_to(msg, "Բարև 👋 Գրի՛ր քո Dash հասցեն (սկսվում է X-ով)")
-
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
     user_id = str(msg.chat.id)
@@ -71,9 +69,9 @@ def save_address(msg):
     sent_txs.setdefault(user_id, {})
     sent_txs[user_id].setdefault(address, [])
     save_json(SENT_TX_FILE, sent_txs)
-    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
+    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց! Նոր TX ծանուցումները արդեն կուղարկվեն ավտոմատ:")
 
-# ===== Background loop =====
+# ===== Background monitoring =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -94,11 +92,8 @@ def monitor():
                         print("Telegram send error:", e)
                     sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
         save_json(SENT_TX_FILE, sent_txs)
-        time.sleep(5)  # Ստուգում նոր TX-ների համար ամեն 5 վայրկյան
+        time.sleep(5)
 
-# ===== Run monitoring in a thread =====
-users = load_json(USERS_FILE)
-sent_txs = load_json(SENT_TX_FILE)
 threading.Thread(target=monitor, daemon=True).start()
 
 # ===== Flask server for Render =====
@@ -115,8 +110,10 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
+# ===== Set webhook =====
 bot.remove_webhook()
 bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
+
