@@ -126,7 +126,7 @@ def monitor_loop():
 threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Webhook Route =====
-@app.route(f"/{BOT_TOKEN}", methods=['POST'])
+@app.route(f"/{8458429917:AAGxZEczLJd4nhzoKs0j98hAvm9L_Px2X28}", methods=['POST'])
 def webhook():
     update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
     bot.process_new_updates([update])
@@ -141,5 +141,6 @@ if __name__ == "__main__":
     bot.remove_webhook()
     time.sleep(1)
     bot.set_webhook(url=f"{APP_URL}/{BOT_TOKEN}")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
