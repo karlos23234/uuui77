@@ -2,11 +2,11 @@ import os
 import json
 import requests
 import time
+from datetime import datetime
 import threading
 import telebot
-from datetime import datetime
 
-# ===== Environment Variables =====
+# ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN որպես Environment Variable")
@@ -27,6 +27,7 @@ def save_json(file, data):
 users = load_json(USERS_FILE)
 sent_txs = load_json(SENT_TX_FILE)
 
+# ===== Price API =====
 def get_dash_price_usd():
     try:
         r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=dash&vs_currencies=usd", timeout=10)
@@ -34,6 +35,7 @@ def get_dash_price_usd():
     except:
         return None
 
+# ===== Transactions API =====
 def get_latest_txs(address):
     try:
         r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=10", timeout=20)
@@ -41,6 +43,7 @@ def get_latest_txs(address):
     except:
         return []
 
+# ===== Format Alert =====
 def format_alert(tx, address, tx_number, price):
     txid = tx["hash"]
     total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
@@ -58,7 +61,7 @@ def format_alert(tx, address, tx_number, price):
 # ===== Telegram Handlers =====
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "Բարև 👋 Գրի՛ր քո Dash հասցեն (սկսվում է X-ով)")
+    bot.reply_to(msg, "Բարև 👋 Գրիր քո Dash հասցեն (սկսվում է X-ով)")
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
@@ -73,31 +76,35 @@ def save_address(msg):
     save_json(SENT_TX_FILE, sent_txs)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background Loop =====
-def monitor():
+# ===== Background Monitor =====
+def monitor_loop():
     while True:
-        price = get_dash_price_usd()
-        for user_id, addresses in users.items():
-            for address in addresses:
-                txs = get_latest_txs(address)
-                known = sent_txs.get(user_id, {}).get(address, [])
-                last_number = max([t["num"] for t in known], default=0)
-                for tx in reversed(txs):
-                    if tx["hash"] in [t["txid"] for t in known]:
-                        continue
-                    last_number += 1
-                    alert = format_alert(tx, address, last_number, price)
-                    try:
-                        bot.send_message(user_id, alert)
-                    except Exception as e:
-                        print("Telegram send error:", e)
-                    known.append({"txid": tx["hash"], "num": last_number})
-                sent_txs.setdefault(user_id, {})[address] = known
-        save_json(SENT_TX_FILE, sent_txs)
+        try:
+            price = get_dash_price_usd()
+            for user_id, addresses in users.items():
+                for address in addresses:
+                    txs = get_latest_txs(address)
+                    known = sent_txs.get(user_id, {}).get(address, [])
+                    last_number = max([t["num"] for t in known], default=0)
+                    for tx in reversed(txs):
+                        if tx["hash"] in [t["txid"] for t in known]:
+                            continue
+                        last_number += 1
+                        alert = format_alert(tx, address, last_number, price)
+                        try:
+                            bot.send_message(user_id, alert)
+                        except Exception as e:
+                            print("Telegram send error:", e)
+                        known.append({"txid": tx["hash"], "num": last_number})
+                    sent_txs.setdefault(user_id, {})[address] = known
+            save_json(SENT_TX_FILE, sent_txs)
+        except Exception as e:
+            print("Monitor loop error:", e)
         time.sleep(15)
 
-threading.Thread(target=monitor, daemon=True).start()
+# ===== Start Monitor Thread =====
+threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ===== Start polling =====
-bot.infinity_polling(timeout=10, long_polling_timeout=5)
+# ===== Start Bot Polling =====
+bot.infinity_polling()
 
