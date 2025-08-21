@@ -12,7 +12,7 @@ import re
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("Պետք է ավելացնես BOT_TOKEN և WEBHOOK_URL Env Variable-ներով")
+    raise ValueError("Դուք պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Env Variable")
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
@@ -42,7 +42,7 @@ def save_json(file, data):
 users = load_json(USERS_FILE)
 sent_txs = load_json(SENT_TX_FILE)
 
-# ===== Address Validation =====
+# ===== Dash address validation =====
 def is_valid_dash_address(address):
     return re.match(r'^X[a-zA-Z0-9]{33}$', address) is not None
 
@@ -82,10 +82,10 @@ def format_alert(tx, address, tx_number, price):
         f"🔗 <a href='https://blockchair.com/dash/transaction/{txid}'>Դիտել Blockchair-ում</a>"
     )
 
-# ===== Telegram Commands =====
+# ===== Telegram Handlers =====
 @bot.message_handler(commands=['start', 'help'])
 def start(msg):
-    bot.reply_to(msg, "Բարև 👋 Գրիր քո Dash հասցեն (սկսվում է X-ով)։\n\n"
+    bot.reply_to(msg, "Բարև 👋 Գրիր քո Dash հասցեն (սկսվում է X-ով):\n\n"
                      "Հրամաններ:\n"
                      "/list - Ցուցադրել բոլոր հասցեները\n"
                      "/delete [հասցե] - Ջնջել հասցեն\n"
@@ -188,9 +188,11 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
+# ===== Start bot =====
+bot.remove_webhook()
+bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+threading.Thread(target=monitor_loop, daemon=True).start()
+
 if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-    threading.Thread(target=monitor_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
 
