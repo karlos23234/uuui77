@@ -38,7 +38,7 @@ def get_dash_price_usd():
 # ===== Transactions API =====
 def get_latest_txs(address):
     try:
-        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=100", timeout=20)
+        r = requests.get(f"https://api.blockcypher.com/v1/dash/main/addrs/{address}/full?limit=5", timeout=20)
         return r.json().get("txs", [])
     except:
         return []
@@ -107,5 +107,4 @@ threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Start Bot Polling =====
 bot.infinity_polling()
-
 
