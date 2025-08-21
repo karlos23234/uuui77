@@ -47,9 +47,17 @@ def get_latest_txs(address):
 def format_alert(tx, address, tx_number, price):
     txid = tx["hash"]
     total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
-    usd_text = f" (${total_received*price:.2f})" if price else ""
+    
+    # Ուզում ենք համոզվել, որ price միշտ լցված է
+    if not price:
+        price = get_dash_price_usd() or 0
+    
+    usd_amount = total_received * price
+    usd_text = f" (${usd_amount:.2f})" if usd_amount else ""
+    
     timestamp = tx.get("confirmed")
     timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
+    
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
@@ -107,4 +115,5 @@ threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Start Bot Polling =====
 bot.infinity_polling()
+
 
