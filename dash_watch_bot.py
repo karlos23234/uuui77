@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Կոնֆիգուրացիա
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://your-app-name.onrender.com")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", " 8482347131:AAG1F8M_Qvalpu7it4dEHOul1YVVME3iRxQ")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://uuui77-5zd8.onrender.com")
 
 # Բոտի ինիցիալիզացիա
 bot = telebot.TeleBot(BOT_TOKEN)
