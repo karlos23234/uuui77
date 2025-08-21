@@ -11,9 +11,9 @@ import telebot
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("Add BOT_TOKEN and WEBHOOK_URL as Environment Variables!")
+    raise ValueError("Պետք է ավելացնեք BOT_TOKEN և WEBHOOK_URL որպես Environment Variables")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
 USERS_FILE = "users.json"
 SENT_TX_FILE = "sent_txs.json"
@@ -51,13 +51,17 @@ def format_alert(tx, address, tx_number, price):
     timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
-        f"📌 Հասցե: {address}\n"
-        f"💰 Գումար: {total_received:.8f} DASH{usd_text}\n"
-        f"🕒 Ժամանակ: {timestamp}\n"
+        f"📌 Address: {address}\n"
+        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
+        f"🕒 Time: {timestamp}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}"
     )
 
 # ===== Telegram Handlers =====
+@bot.message_handler(commands=['start'])
+def start(msg):
+    bot.reply_to(msg, "Բարև 👋 Գրի՛ր քո Dash հասցեն (սկսվում է X-ով)")
+
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
     user_id = str(msg.chat.id)
@@ -69,9 +73,9 @@ def save_address(msg):
     sent_txs.setdefault(user_id, {})
     sent_txs[user_id].setdefault(address, [])
     save_json(SENT_TX_FILE, sent_txs)
-    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց! Նոր TX ծանուցումները արդեն կուղարկվեն ավտոմատ:")
+    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background monitoring =====
+# ===== Background loop =====
 def monitor():
     while True:
         price = get_dash_price_usd()
@@ -92,7 +96,7 @@ def monitor():
                         print("Telegram send error:", e)
                     sent_txs.setdefault(user_id, {}).setdefault(address, []).append({"txid": txid, "num": last_number})
         save_json(SENT_TX_FILE, sent_txs)
-        time.sleep(5)
+        time.sleep(5)  # ստուգում յուրաքանչյուր 5 վայրկյան
 
 threading.Thread(target=monitor, daemon=True).start()
 
@@ -110,10 +114,9 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-# ===== Set webhook =====
 bot.remove_webhook()
 bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
-
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
