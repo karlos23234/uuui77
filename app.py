@@ -2,9 +2,10 @@ import os
 import json
 import requests
 import time
-from datetime import datetime
 import threading
+from datetime import datetime
 import telebot
+from flask import Flask, request
 
 # ===== Environment variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -100,7 +101,7 @@ def monitor_loop():
                         saved = next((t for t in known if t["txid"] == txid), None)
 
                         if not saved:
-                            # նոր գործարք → Pending
+                            # Նոր գործարք → Pending անմիջապես
                             last_number += 1
                             alert = format_alert(tx, address, last_number, price, "⏳ Pending")
                             try:
@@ -111,7 +112,7 @@ def monitor_loop():
                             known.append({"txid": txid, "num": last_number, "confirmed": False})
 
                         else:
-                            # եթե Pending ուղարկվել է, բայց հիմա արդեն confirmed է
+                            # Եթե Pending արդեն ուղարկված է, բայց հիմա Confirmed է
                             if not saved.get("confirmed") and tx.get("confirmed"):
                                 alert = format_alert(tx, address, saved["num"], price, "✅ Confirmed")
                                 try:
@@ -130,5 +131,20 @@ def monitor_loop():
 # ===== Start Monitor Thread =====
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ===== Start Bot Polling =====
-bot.infinity_polling()
+# ===== Webhook Server =====
+app = Flask(__name__)
+
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Dash Watch Bot is running!"
+
+if __name__ == "__main__":
+    bot.remove_webhook()
+    bot.set_webhook(url=f"https://YOUR-DOMAIN.onrender.com/{BOT_TOKEN}")  # ⚠️ քո դոմեյնը դիր այստեղ
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
