@@ -44,17 +44,23 @@ def get_latest_txs(address):
         return []
 
 # ===== Format Alert =====
-def format_alert(tx, address, tx_number, price):
+def format_alert(tx, address, tx_number, price, status):
     txid = tx["hash"]
     total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
     usd_text = f" (${total_received*price:.2f})" if price else ""
-    timestamp = tx.get("confirmed")
-    timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
+
+    timestamp = tx.get("confirmed") or tx.get("received")
+    if timestamp:
+        timestamp = datetime.fromisoformat(timestamp.replace("Z","+00:00")).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        timestamp = "Unknown"
+
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n\n"
         f"📌 Address: {address}\n"
         f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
         f"🕒 Time: {timestamp}\n"
+        f"📌 Status: {status}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}"
     )
 
@@ -85,17 +91,36 @@ def monitor_loop():
                 for address in addresses:
                     txs = get_latest_txs(address)
                     known = sent_txs.get(user_id, {}).get(address, [])
+                    if not isinstance(known, list):
+                        known = []
                     last_number = max([t["num"] for t in known], default=0)
+
                     for tx in reversed(txs):
-                        if tx["hash"] in [t["txid"] for t in known]:
-                            continue
-                        last_number += 1
-                        alert = format_alert(tx, address, last_number, price)
-                        try:
-                            bot.send_message(user_id, alert)
-                        except Exception as e:
-                            print("Telegram send error:", e)
-                        known.append({"txid": tx["hash"], "num": last_number})
+                        txid = tx["hash"]
+                        saved = next((t for t in known if t["txid"] == txid), None)
+
+                        if not saved:
+                            # նոր գործարք → Pending
+                            last_number += 1
+                            alert = format_alert(tx, address, last_number, price, "⏳ Pending")
+                            try:
+                                bot.send_message(user_id, alert)
+                            except Exception as e:
+                                print("Telegram send error:", e)
+
+                            known.append({"txid": txid, "num": last_number, "confirmed": False})
+
+                        else:
+                            # եթե Pending ուղարկվել է, բայց հիմա արդեն confirmed է
+                            if not saved.get("confirmed") and tx.get("confirmed"):
+                                alert = format_alert(tx, address, saved["num"], price, "✅ Confirmed")
+                                try:
+                                    bot.send_message(user_id, alert)
+                                except Exception as e:
+                                    print("Telegram send error:", e)
+
+                                saved["confirmed"] = True
+
                     sent_txs.setdefault(user_id, {})[address] = known
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
@@ -107,4 +132,3 @@ threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Start Bot Polling =====
 bot.infinity_polling()
-
