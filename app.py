@@ -80,7 +80,7 @@ def save_address(msg):
     save_json(SENT_TX_FILE, sent_txs)
     bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
 
-# ===== Background Monitor =====
+# ===== Background Monitor (Debug Version) =====
 def monitor_loop():
     while True:
         try:
@@ -90,22 +90,31 @@ def monitor_loop():
                     txs = get_latest_txs(address)
                     known = sent_txs.get(user_id, {}).get(address, [])
                     last_number = max([t["num"] for t in known], default=0)
+
                     for tx in reversed(txs):
                         if tx["hash"] in [t["txid"] for t in known]:
                             continue
                         last_number += 1
                         alert = format_alert(tx, address, last_number, price)
+
+                        # Debug: console output
+                        total_received = sum([o["value"]/1e8 for o in tx.get("outputs", []) if address in (o.get("addresses") or [])])
+                        print(f"📌 New TX detected for {address}: {tx['hash']} | Amount: {total_received:.8f} DASH | USD: {total_received*price:.2f}" if price else "")
+
                         try:
                             bot.send_message(user_id, alert)
                         except Exception as e:
                             print("Telegram send error:", e)
+
                         known.append({"txid": tx["hash"], "num": last_number})
+
                     sent_txs.setdefault(user_id, {})[address] = known
             save_json(SENT_TX_FILE, sent_txs)
         except Exception as e:
             print("Monitor loop error:", e)
         time.sleep(3)
 
+# Start background monitor
 threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Webhook Route =====
