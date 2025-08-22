@@ -47,19 +47,23 @@ def format_alert(tx, address, price, tx_number):
         addrs = o.get("scriptPubKey", {}).get("addresses", [])
         if address in addrs:
             total_received += float(o.get("value", 0) or 0)
-    usd_text = f" (${total_received*price:.2f})" if price else ""
+
     confirmations = tx.get("confirmations", 0)
     status = "✅ Confirmed" if confirmations > 0 else "⏳ Pending"
     timestamp = tx.get("time")
     timestamp = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
+
+    usd_amount = total_received * price if price else 0
+
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n"
         f"📌 Address: {address}\n"
-        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
+        f"💰 Amount: {total_received:.8f} DASH (${usd_amount:.2f})\n"
         f"🕒 Time: {timestamp}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}\n"
         f"📄 Status: {status}"
     )
+
 
 # ===== Telegram handlers =====
 @bot.message_handler(commands=['start'])
@@ -120,3 +124,4 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
