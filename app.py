@@ -16,6 +16,10 @@ if not BOT_TOKEN or not WEBHOOK_URL:
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
+# ===== Security: PIN =====
+PIN_CODE = "1234"  # քո գաղտնի PIN-ը
+authorized_users = set()  # user_id-ների ցանկ, որոնք մուտք են գործել
+
 # ===== Users & TX storage =====
 users = {}  # {user_id: [addresses]}
 sent_txs = {}  # {address: [{"txid": ..., "num": ...}]}
@@ -64,15 +68,23 @@ def format_alert(tx, address, price, tx_number):
         f"📄 Status: {status}"
     )
 
-
 # ===== Telegram handlers =====
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "Բարև 👋 Գրիր քո Dash հասցեն (սկսվում է X-ով)")
+    bot.reply_to(msg, "Բարև 👋 Խնդրում եմ մուտքագրիր PIN կոդը՝ մուտք գործելու համար։")
+
+@bot.message_handler(func=lambda m: m.text and m.text.isdigit() and m.text.strip() == PIN_CODE)
+def check_pin(msg):
+    user_id = str(msg.chat.id)
+    authorized_users.add(user_id)
+    bot.reply_to(msg, "✅ PIN ճիշտ է։ Հիմա կարող ես ուղարկել քո Dash հասցեն (սկսվում է X-ով)։")
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
     user_id = str(msg.chat.id)
+    if user_id not in authorized_users:
+        bot.reply_to(msg, "❌ Նախ պետք է մուտքագրես ճիշտ PIN կոդ։")
+        return
     address = msg.text.strip()
     users.setdefault(user_id, [])
     if address not in users[user_id]:
@@ -87,10 +99,9 @@ def monitor_loop():
             for user_id, addresses in users.items():
                 for address in addresses:
                     txs = get_latest_txs(address)
-                    txs.reverse()  # հինից նորին
+                    txs.reverse()
                     sent_txs.setdefault(address, [])
 
-                    # Հաշվել վերջին TX համարը
                     last_number = max([t["num"] for t in sent_txs[address]], default=0)
 
                     for tx in txs:
@@ -107,7 +118,7 @@ def monitor_loop():
 
         except Exception as e:
             print("Monitor loop error:", e)
-        time.sleep(10)  # ստուգում 10 վայրկյան
+        time.sleep(10)
 
 threading.Thread(target=monitor_loop, daemon=True).start()
 
@@ -124,4 +135,3 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
