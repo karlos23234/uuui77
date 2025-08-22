@@ -21,8 +21,8 @@ PIN_CODE = "1234"  # քո գաղտնի PIN-ը
 authorized_users = set()  # user_id-ների ցանկ, որոնք մուտք են գործել
 
 # ===== Users & TX storage =====
-users = {}  # {user_id: [addresses]}
-sent_txs = {}  # {address: [{"txid": ..., "num": ...}]}
+users = {}       # {user_id: [addresses]}
+sent_txs = {}    # {address: [{"txid": ..., "num": ...}]}
 
 # ===== Fetch DASH price =====
 def get_dash_price_usd():
@@ -73,11 +73,14 @@ def format_alert(tx, address, price, tx_number):
 def start(msg):
     bot.reply_to(msg, "Բարև 👋 Խնդրում եմ մուտքագրիր PIN կոդը՝ մուտք գործելու համար։")
 
-@bot.message_handler(func=lambda m: m.text and m.text.isdigit() and m.text.strip() == PIN_CODE)
+@bot.message_handler(func=lambda m: m.text and m.text.isdigit())
 def check_pin(msg):
     user_id = str(msg.chat.id)
-    authorized_users.add(user_id)
-    bot.reply_to(msg, "✅ PIN ճիշտ է։ Հիմա կարող ես ուղարկել քո Dash հասցեն (սկսվում է X-ով)։")
+    if msg.text.strip() == PIN_CODE:
+        authorized_users.add(user_id)
+        bot.reply_to(msg, "✅ PIN ճիշտ է։ Հիմա կարող ես ուղարկել քո Dash հասցեն (սկսվում է X-ով)։")
+    else:
+        bot.reply_to(msg, "❌ Սխալ PIN, փորձիր նորից։")
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
@@ -135,3 +138,4 @@ bot.set_webhook(url=WEBHOOK_URL)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
