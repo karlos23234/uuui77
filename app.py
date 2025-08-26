@@ -21,8 +21,9 @@ PIN_CODE = "1234"  # քո գաղտնի PIN
 authorized_users = set()
 
 # ===== Users & TX storage =====
-users = {}       # {user_id: [addresses]}
-sent_txs = {}    # {address: [{"txid": ..., "num": ...}]}
+users = {}               # {user_id: [addresses]}
+sent_txs = {}            # {address: [{"txid": ..., "num": ...}]}
+user_activation = {}     # {user_id: activation_timestamp}
 
 # ===== Fetch DASH price with cache =====
 cached_price = None
@@ -77,23 +78,31 @@ def format_alert(tx, address, price, tx_number):
 
     return (
         f"🔔 Նոր փոխանցում #{tx_number}!\n"
-        f"📌 Address: {address}\n"
-        f"💰 Amount: {total_received:.8f} DASH{usd_text}\n"
-        f"🕒 Time: {timestamp}\n"
+        f"📌 Հասցե՝ {address}\n"
+        f"💰 Դրամաբաժին՝ {total_received:.8f} DASH{usd_text}\n"
+        f"🕒 Ժամանակ՝ {timestamp}\n"
         f"🔗 https://blockchair.com/dash/transaction/{txid}\n"
-        f"📄 Status: {status}"
+        f"📄 Պաշտոնական կարգավիճակ՝ {status}"
     )
 
 # ===== Telegram handlers =====
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "Բարև 👋 Խնդրում եմ մուտքագրիր PIN կոդը՝ մուտք գործելու համար։")
+    text = (
+        "Բարև 👋\n\n"
+        "✅ Այս բոտը թույլ է տալիս ստանալ ծանուցումներ Dash փոխանցումների մասին քո նշած հասցեների համար։\n"
+        "💸 Ծառայության արժեքը կազմում է **40$** 30 օր ժամկետով։\n"
+        "🔍 Մենք մշտապես ստուգում ենք բլոկչեյնը՝ նոր մուտքեր հայտնաբերելու համար։\n\n"
+        "📌 Սկսելու համար մուտքագրիր PIN կոդը։"
+    )
+    bot.reply_to(msg, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.isdigit())
 def check_pin(msg):
     user_id = str(msg.chat.id)
     if msg.text.strip() == PIN_CODE:
         authorized_users.add(user_id)
+        user_activation[user_id] = time.time()
         bot.reply_to(msg, "✅ PIN ճիշտ է։ Հիմա կարող ես ուղարկել քո Dash հասցեն (սկսվում է X-ով)։")
     else:
         bot.reply_to(msg, "❌ Սխալ PIN, փորձիր նորից։")
@@ -120,7 +129,19 @@ def monitor_loop():
                 time.sleep(10)
                 continue
 
+            now = time.time()
+            expired_users = set()
+
             for user_id, addresses in users.items():
+                activation_time = user_activation.get(user_id)
+                if not activation_time:
+                    continue
+
+                # Ստուգել 30 օրվա ժամկետը
+                if now - activation_time > 30 * 24 * 60 * 60:  # 30 օր
+                    expired_users.add(user_id)
+                    continue
+
                 for address in addresses:
                     txs = get_latest_txs(address)
                     txs.reverse()
@@ -145,6 +166,16 @@ def monitor_loop():
                             print("Telegram send error:", e)
 
                         sent_txs[address].append({"txid": txid, "num": last_number})
+
+            # Ծառայության ավարտի հղում
+            for expired_id in expired_users:
+                authorized_users.discard(expired_id)
+                users.pop(expired_id, None)
+                user_activation.pop(expired_id, None)
+                try:
+                    bot.send_message(expired_id, "⏳ Քո 30-օրյա ծառայության ժամանակը ավարտվել է։ Խնդրում ենք նորից ակտիվացնել՝ մուտքագրելով PIN կոդ։")
+                except Exception as e:
+                    print("Telegram send error (expired):", e)
 
         except Exception as e:
             print("Monitor loop error:", e)
