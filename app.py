@@ -16,14 +16,26 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
 PIN_CODE = "1234"
-PAYMENT_ADDRESS = "XyYourPaymentDashAddressHere"  # Այստեղ դնել վճարման հասցեն
+PAYMENT_ADDRESS = "XyYourPaymentDashAddressHere"
+
+payment_packages = {
+    "1_month": 40,
+    "6_months": 200,
+    "1_year": 380,
+}
+
+package_names = {
+    "1_month": "1 ամսվա",
+    "6_months": "6 ամսվա",
+    "1_year": "1 տարվա",
+}
 
 authorized_users = set()
 users = {}           # {user_id: [dash_addresses]}
 sent_txs = {}        # {address: [{"txid": ..., "num": ...}]}
 user_payments = {}   # {user_id: True/False}
+user_packages = {}   # {user_id: {"package": "1_year", "paid": True, "start_time": timestamp}}
 
-# Price cache
 cached_price = None
 def get_dash_price_usd():
     global cached_price
@@ -81,13 +93,22 @@ def format_alert(tx, address, price, tx_number):
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    text = (
-        "Բարև 👋\n\n"
-        "💸 Ծառայության արժեքը 40$ է 30 օր ժամկետով։\n"
-        f"📍 Խնդրում ենք վճարել այս Dash հասցեին՝\n`{PAYMENT_ADDRESS}`\n"
-        "Հետո մուտքագրեք PIN կոդը՝ ակտիվացնելու համար։"
-    )
+    text = "Բարև 👋\nԽնդրում եմ ընտրիր փաթեթ՝ ուղարկելով համապատասխան տեքստը:\n"
+    for key, usd in payment_packages.items():
+        text += f"- {package_names[key]} փաթեթ — {usd}$\n"
+    text += f"\n📍 Վճարեք այս Dash հասցեին՝\n`{PAYMENT_ADDRESS}`\n\n" \
+            "Հետո ուղարկեք ձեր վճարված փաթեթի անունը՝ օրինակ՝ `1_month`։\n" \
+            "Այժմ սպասեք, որ ձեր վճարումն ընդունվի, ապա մուտքագրեք PIN կոդը։"
     bot.reply_to(msg, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text and m.text in payment_packages)
+def package_select(msg):
+    user_id = str(msg.chat.id)
+    package = msg.text.strip()
+    user_packages[user_id] = {"package": package, "paid": False, "start_time": None}
+    bot.reply_to(msg, f"✅ Դուք ընտրեցիք {package_names[package]} փաթեթը, որը արժե {payment_packages[package]}$։\n"
+                      f"Խնդրում ենք վճարել համապատասխան գումարը այս Dash հասցեին՝\n`{PAYMENT_ADDRESS}`\n"
+                      "Սպասեք վճարման հաստատմանը։")
 
 @bot.message_handler(func=lambda m: m.text and m.text.isdigit())
 def check_pin(msg):
@@ -95,26 +116,33 @@ def check_pin(msg):
     if msg.text.strip() == PIN_CODE:
         if user_payments.get(user_id):
             authorized_users.add(user_id)
-            bot.reply_to(msg, "✅ PIN ճիշտ է։ Հիմա կարող ես ուղարկել քո Dash հասցեն (սկսվում է X-ով)։")
+            bot.reply_to(msg, "✅ PIN ճիշտ է։ Հիմա կարող եք ուղարկել ձեր Dash հասցեն (սկսվում է X-ով)։")
         else:
-            bot.reply_to(msg, "❌ Դուք դեռ չեք վճարել 40$։ Խնդրում ենք կատարել փոխանցում՝ նշված Dash հասցեին։")
+            bot.reply_to(msg, "❌ Դուք դեռ չեք վճարել։ Խնդրում ենք կատարել համապատասխան փոխանցումը։")
     else:
-        bot.reply_to(msg, "❌ Սխալ PIN, փորձիր նորից։")
+        bot.reply_to(msg, "❌ Սխալ PIN, փորձեք նորից։")
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("X"))
 def save_address(msg):
     user_id = str(msg.chat.id)
     if user_id not in authorized_users:
-        bot.reply_to(msg, "❌ Նախ պետք է մուտքագրես ճիշտ PIN կոդ։")
+        bot.reply_to(msg, "❌ Նախ պետք է մուտքագրեք ճիշտ PIN կոդ։")
         return
     address = msg.text.strip()
     users.setdefault(user_id, [])
     if address not in users[user_id]:
         users[user_id].append(address)
-    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց!")
+    bot.reply_to(msg, f"✅ Հասցեն {address} պահպանվեց։")
 
 # ===== Check payment loop =====
 def check_user_payment(user_id, payment_address=PAYMENT_ADDRESS):
+    if user_id not in user_packages:
+        return False
+    package_info = user_packages[user_id]
+    required_amount = payment_packages.get(package_info["package"])
+    if not required_amount:
+        return False
+
     txs = get_latest_txs(payment_address)
     total_received = 0.0
     for tx in txs:
@@ -123,18 +151,22 @@ def check_user_payment(user_id, payment_address=PAYMENT_ADDRESS):
     if not price:
         return False
     total_usd = total_received * price
-    if total_usd >= 40:
+
+    if total_usd >= required_amount:
+        user_packages[user_id]["paid"] = True
+        user_packages[user_id]["start_time"] = time.time()
         user_payments[user_id] = True
+        bot.send_message(user_id, f"🎉 Դուք վճարել եք {package_names[package_info['package']]} փաթեթի համար։ "
+                                  f"Հիմա կարող եք մուտքագրել PIN կոդը։")
         return True
     return False
 
 def payment_check_loop():
     while True:
-        for user_id in list(users.keys()):
+        for user_id in list(user_packages.keys()):
             if user_payments.get(user_id):
                 continue
-            if check_user_payment(user_id):
-                bot.send_message(user_id, "🎉 Դուք վճարել եք 40$։ Այժմ կարող եք մուտքագրել ձեր Dash հասցեն։")
+            check_user_payment(user_id)
         time.sleep(60)
 
 # ===== Monitor loop =====
@@ -149,7 +181,7 @@ def monitor_loop():
 
             for user_id, addresses in users.items():
                 if user_id not in authorized_users:
-                    continue  # User not authorized, skip
+                    continue  # User not authorized
 
                 for address in addresses:
                     txs = get_latest_txs(address)
@@ -184,7 +216,6 @@ threading.Thread(target=payment_check_loop, daemon=True).start()
 threading.Thread(target=monitor_loop, daemon=True).start()
 
 # ===== Webhook =====
-from flask import request
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     json_str = request.get_data().decode("utf-8")
