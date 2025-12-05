@@ -151,13 +151,14 @@ def pin_handler(msg):
         bot.send_message(
             msg.chat.id,
             f"✅ PIN ընդունվեց!\n\n"
-            f"💳 Վճարելու հասցե՝\n`{Xdbs2hcVFHAYWznfCg8obQK937LkyPa515}`\n\n"
+            f"💳 Վճարելու հասցե՝\n`{DASH_ADDRESS}`\n\n"
             f"🔸 Մինիմալ վճարում՝ $20\n"
             f"🔔 Վճարումը ստացվելուց հետո բոտը ավտոմատ կբացի հասանելիությունը։",
             parse_mode="Markdown"
         )
     else:
         bot.reply_to(msg, "❌ Սխալ PIN, փորձիր նորից։")
+
 
 
 @bot.message_handler(commands=['status'])
@@ -180,3 +181,4 @@ if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     app.run(host="0.0.0.0", port=5000)
+
